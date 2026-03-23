@@ -1,0 +1,10 @@
+# 플러그인 등록이 허가된 GitHub 사용자 목록
+# 관리자(admin)가 이 파일을 수정하여 개발자를 추가/삭제합니다.
+
+admin:
+  - jklee690navercom         # 관리자 — 개발자 목록 관리 권한
+
+developers:
+  - jklee690navercom         # admin도 개발자로서 플러그인 등록 가능
+  # - developer-b            # 새 개발자를 추가하려면 여기에 GitHub ID 추가
+  # - developer-c
