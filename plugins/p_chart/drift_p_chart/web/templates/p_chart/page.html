@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+
+{% block title %}P Chart Drift Detection{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('p_chart.static', filename='style.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+{% endblock %}
+
+{% block content %}
+<div class="p-chart-page">
+
+    <section class="p-chart-header">
+        <h1>P Chart (Proportion Chart)</h1>
+        <p>불량률/에러율 등 비율 지표를 모니터링하는 제어 차트. 이항분포 기반 제어 한계를 적용한다.</p>
+        <div class="info-buttons">
+            <button class="btn-info" onclick="togglePanel('algorithm-info')">P Chart 알고리즘 설명</button>
+            <button class="btn-info" onclick="togglePanel('example-info')">예제 데이터 설명</button>
+        </div>
+    </section>
+
+    <!-- 알고리즘 설명 패널 -->
+    <section class="info-panel" id="algorithm-info" style="display:none;">
+        <div class="info-panel__header">
+            <h2>P Chart 알고리즘</h2>
+            <button class="btn-close" onclick="togglePanel('algorithm-info')">닫기</button>
+        </div>
+        <div class="info-panel__body">
+            <h3>개요</h3>
+            <p>P 차트는 불량률(비율)을 모니터링하는 제어 차트이다. 이항분포를 기반으로 한다.
+               각 검사 그룹에서 불량 비율 p = 불량 수 / 검사 수를 계산한다.</p>
+
+            <h3>제어 한계</h3>
+            <ul>
+                <li><strong>CL</strong> = p&#772; (전체 평균 불량률)</li>
+                <li><strong>UCL</strong> = p&#772; + 3 &times; &radic;(p&#772;(1-p&#772;)/n) where n = 검사 수</li>
+                <li><strong>LCL</strong> = max(0, p&#772; - 3 &times; &radic;(p&#772;(1-p&#772;)/n))</li>
+            </ul>
+
+            <h3>AI 모니터링 적용</h3>
+            <p>AI 추론의 에러율, 오탐률, 재문의율 등 비율 지표 모니터링.
+               예를 들어 시간대별 추론 에러 비율이 정상 범위를 벗어나면 alarm.</p>
+
+            <h3>파라미터</h3>
+            <table class="info-table">
+                <thead><tr><th>파라미터</th><th>의미</th><th>기본값</th><th>효과</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td><strong>sample_size (n)</strong></td>
+                        <td>각 그룹의 검사 수.</td>
+                        <td>50</td>
+                        <td>클수록 제어 한계가 좁아져 민감해진다.</td>
+                    </tr>
+                    <tr>
+                        <td><strong>reference_ratio</strong></td>
+                        <td>기준 구간 비율.</td>
+                        <td>0.5</td>
+                        <td>기준 구간이 안정적일수록 제어 한계가 정확해진다.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- 예제 데이터 설명 패널 -->
+    <section class="info-panel" id="example-info" style="display:none;">
+        <div class="info-panel__header">
+            <h2>예제 데이터</h2>
+            <button class="btn-close" onclick="togglePanel('example-info')">닫기</button>
+        </div>
+        <div class="info-panel__body">
+            <h3>데이터 구성</h3>
+            <p>합성 데이터: <strong>60개 시간대</strong>, 각 시간대 50건의 추론. 에러 여부를 시뮬레이션.</p>
+
+            <table class="info-table">
+                <thead><tr><th>구간</th><th>시간대 수</th><th>에러율</th><th>설명</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td><strong>정상 구간 (1~40)</strong></td>
+                        <td>40개</td>
+                        <td>약 5% (평균 2.5건/50건)</td>
+                        <td>안정적 에러율</td>
+                    </tr>
+                    <tr>
+                        <td><strong>이상 구간 (41~60)</strong></td>
+                        <td>20개</td>
+                        <td>약 20% (평균 10건/50건)</td>
+                        <td>에러율 급증</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>기대 결과</h3>
+            <ul>
+                <li>P Chart에서 에러율 급증 구간이 UCL을 초과</li>
+            </ul>
+
+            <h3>차트 읽는 법</h3>
+            <ul>
+                <li><strong>P Chart</strong>: 각 시간대의 비율 값과 UCL/LCL/CL 라인. 빨간 점이 alarm 시점.</li>
+                <li>비율이 UCL 위로 올라가면 에러율이 비정상적으로 높아진 것이다.</li>
+            </ul>
+        </div>
+    </section>
+
+    <section class="p-chart-controls">
+        <h2>Parameters</h2>
+        <div class="param-group">
+            <label>
+                Sample Size (n): <input id="param-sample-size" type="number" value="50" step="10" min="10">
+                <span class="hint">각 그룹의 검사 수</span>
+            </label>
+            <label>
+                Reference Ratio: <input id="param-reference-ratio" type="number" value="0.5" step="0.1" min="0.1" max="0.9">
+                <span class="hint">기준 구간 비율</span>
+            </label>
+        </div>
+        <div class="action-buttons">
+            <button onclick="runExample()">Run Example</button>
+        </div>
+    </section>
+
+    <section class="p-chart-charts">
+        <div class="chart-container">
+            <h3>P Chart (Proportion)</h3>
+            <canvas id="p-chart"></canvas>
+        </div>
+    </section>
+
+    <section class="p-chart-results" id="results-section" style="display:none;">
+        <h2>Detection Results</h2>
+        <div class="stats-cards">
+            <div class="stat-card">
+                <span class="stat-value" id="stat-alarms">-</span>
+                <span class="stat-label">Events</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value" id="stat-score">-</span>
+                <span class="stat-label">Max Score</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value" id="stat-severity">-</span>
+                <span class="stat-label">Max Severity</span>
+            </div>
+        </div>
+        <table id="events-table">
+            <thead><tr><th>Time</th><th>Score</th><th>Severity</th><th>Message</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </section>
+
+</div>
+
+<script src="{{ url_for('p_chart.static', filename='chart.js') }}"></script>
+{% endblock %}

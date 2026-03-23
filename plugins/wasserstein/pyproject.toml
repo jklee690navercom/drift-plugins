@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drift-wasserstein"
+version = "1.0.0"
+description = "Wasserstein distance drift detection plugin for drift-framework"
+requires-python = ">=3.11"
+dependencies = [
+    "drift-framework>=0.1,<1.0",
+    "matplotlib>=3.8",
+]
+
+[project.entry-points."drift_framework.plugins"]
+wasserstein = "drift_wasserstein:register"
+
+[tool.setuptools.packages.find]
+include = ["drift_wasserstein*"]
+
+[tool.setuptools.package-data]
+drift_wasserstein = [
+    "web/templates/**/*",
+    "web/static/**/*",
+    "examples/*.csv",
+]

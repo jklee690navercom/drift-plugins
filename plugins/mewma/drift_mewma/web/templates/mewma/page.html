@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block title %}MEWMA Drift Detection{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('mewma.static', filename='style.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+{% endblock %}
+
+{% block content %}
+<div class="mewma-page">
+
+    <section class="mewma-header">
+        <h1>MEWMA (Multivariate EWMA)</h1>
+        <p>EWMA 평활화 후 기준 분포로부터의 이탈도(D² 통계량)로 drift를 탐지한다.</p>
+        <div class="info-buttons">
+            <button class="btn-info" onclick="togglePanel('algorithm-info')">MEWMA 알고리즘 설명</button>
+            <button class="btn-info" onclick="togglePanel('example-info')">예제 데이터 설명</button>
+        </div>
+    </section>
+
+    <!-- 알고리즘 설명 패널 -->
+    <section class="info-panel" id="algorithm-info" style="display:none;">
+        <div class="info-panel__header">
+            <h2>MEWMA 알고리즘</h2>
+            <button class="btn-close" onclick="togglePanel('algorithm-info')">닫기</button>
+        </div>
+        <div class="info-panel__body">
+            <h3>개요</h3>
+            <p>MEWMA(Multivariate Exponentially Weighted Moving Average)는 다변량 관리도 기법을
+               단변량에 적용한 것이다. EWMA로 시계열을 평활화한 뒤, 평활 값이 기준 분포에서
+               벗어나는 정도를 D² 통계량으로 측정한다.</p>
+
+            <h3>원리</h3>
+            <ul>
+                <li><strong>EWMA 평활화</strong>: <code>z(t) = λ·x(t) + (1-λ)·z(t-1)</code></li>
+                <li><strong>D² 통계량</strong>: <code>D²(t) = (z(t) - μ_ref)² / σ²_ref</code></li>
+                <li><strong>Alarm</strong>: D² > chi2(1, 1-α) 이면 drift 감지</li>
+            </ul>
+
+            <h3>파라미터</h3>
+            <table class="info-table">
+                <thead><tr><th>파라미터</th><th>의미</th><th>기본값</th><th>효과</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Lambda (λ)</strong></td>
+                        <td>EWMA 평활 계수</td>
+                        <td>0.1</td>
+                        <td>작을수록 과거에 더 큰 가중치, 클수록 최근 값에 민감</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Reference Ratio</strong></td>
+                        <td>기준 구간 비율</td>
+                        <td>0.5</td>
+                        <td>전체 데이터에서 기준 분포로 사용할 비율</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Alpha (α)</strong></td>
+                        <td>유의수준</td>
+                        <td>0.01</td>
+                        <td>작을수록 보수적 (임계값 높음)</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>적합한 상황</h3>
+            <ul>
+                <li>시계열의 점진적인 평균 이동을 탐지하고 싶은 경우</li>
+                <li>노이즈가 많아 원본 데이터보다 평활화된 값으로 판단이 필요한 경우</li>
+                <li>CUSUM보다 부드러운 감지를 원하는 경우</li>
+            </ul>
+
+            <h3>참고 문헌</h3>
+            <ul>
+                <li>Lowry, C.A. et al. (1992). "A Multivariate EWMA Control Chart." <em>Technometrics</em>, 34(1), 46-53.</li>
+            </ul>
+        </div>
+    </section>
+
+    <!-- 예제 데이터 설명 패널 -->
+    <section class="info-panel" id="example-info" style="display:none;">
+        <div class="info-panel__header">
+            <h2>예제 데이터</h2>
+            <button class="btn-close" onclick="togglePanel('example-info')">닫기</button>
+        </div>
+        <div class="info-panel__body">
+            <h3>데이터 구성</h3>
+            <p>합성 데이터 <strong>300건</strong>으로 구성된다.</p>
+            <table class="info-table">
+                <thead><tr><th>구간</th><th>건수</th><th>평균</th><th>표준편차</th><th>설명</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td><strong>정상 구간</strong></td>
+                        <td>200건</td>
+                        <td>0.90</td>
+                        <td>0.02</td>
+                        <td>AI 모델이 정상적으로 동작하는 상태</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Drift 구간</strong></td>
+                        <td>100건</td>
+                        <td>0.80</td>
+                        <td>0.03</td>
+                        <td>모델 성능 저하 상태</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>차트 읽는 법</h3>
+            <ul>
+                <li><strong>상단 차트</strong>: 원본 값(검정) + EWMA 평활 선(파랑). 빨간 점이 alarm 시점.</li>
+                <li><strong>하단 차트</strong>: D² 통계량(보라). 노란 점선이 chi2 임계값.</li>
+                <li>D²가 임계값을 넘으면 drift가 감지된 것이다.</li>
+            </ul>
+        </div>
+    </section>
+
+    <section class="mewma-controls">
+        <h2>Parameters</h2>
+        <div class="param-group">
+            <label>
+                Lambda (λ): <input id="param-lambda" type="number" value="0.1" step="0.05" min="0.01" max="1">
+                <span class="hint">작을수록 과거 가중치 높음</span>
+            </label>
+            <label>
+                Alpha (α): <input id="param-alpha" type="number" value="0.01" step="0.005" min="0.001" max="0.1">
+                <span class="hint">작을수록 보수적</span>
+            </label>
+        </div>
+        <div class="action-buttons">
+            <button onclick="runExample()">Run Example</button>
+        </div>
+    </section>
+
+    <section class="mewma-charts">
+        <div class="chart-container">
+            <h3>Value + EWMA Smoothed Line</h3>
+            <canvas id="value-chart"></canvas>
+        </div>
+        <div class="chart-container">
+            <h3>D² Statistic</h3>
+            <canvas id="stat-chart"></canvas>
+        </div>
+    </section>
+
+    <section class="mewma-results" id="results-section" style="display:none;">
+        <h2>Detection Results</h2>
+        <div class="stats-cards">
+            <div class="stat-card">
+                <span class="stat-value" id="stat-alarms">-</span>
+                <span class="stat-label">Events</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value" id="stat-score">-</span>
+                <span class="stat-label">Max Score</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value" id="stat-severity">-</span>
+                <span class="stat-label">Max Severity</span>
+            </div>
+        </div>
+        <table id="events-table">
+            <thead><tr><th>Time</th><th>Score</th><th>Severity</th><th>Message</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </section>
+
+</div>
+
+<script src="{{ url_for('mewma.static', filename='chart.js') }}"></script>
+{% endblock %}

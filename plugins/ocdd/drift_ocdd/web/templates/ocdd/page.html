@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block title %}OCDD Drift Detection{% endblock %}
+
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('ocdd.static', filename='style.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+{% endblock %}
+
+{% block content %}
+<div class="ocdd-page">
+
+    <section class="ocdd-header">
+        <h1>OCDD (One-Class Drift Detector)</h1>
+        <p>기준 분포의 통계량(평균, 표준편차)과 슬라이딩 윈도우를 비교하여 drift를 탐지한다.</p>
+        <div class="info-buttons">
+            <button class="btn-info" onclick="togglePanel('algorithm-info')">OCDD 알고리즘 설명</button>
+            <button class="btn-info" onclick="togglePanel('example-info')">예제 데이터 설명</button>
+        </div>
+    </section>
+
+    <!-- 알고리즘 설명 패널 -->
+    <section class="info-panel" id="algorithm-info" style="display:none;">
+        <div class="info-panel__header">
+            <h2>OCDD 알고리즘</h2>
+            <button class="btn-close" onclick="togglePanel('algorithm-info')">닫기</button>
+        </div>
+        <div class="info-panel__body">
+            <h3>개요</h3>
+            <p>One-Class Drift Detector는 기준 분포의 rolling statistics(평균, 표준편차)를 학습한 뒤,
+               슬라이딩 윈도우의 통계량이 기준에서 벗어나는 정도를 z-score로 측정한다.</p>
+
+            <h3>원리</h3>
+            <ul>
+                <li>기준 구간에서 윈도우 평균/표준편차의 분포를 추정</li>
+                <li>테스트 구간의 각 윈도우에 대해 z-score 계산</li>
+                <li><strong>z_mean</strong>: 윈도우 평균의 z-score</li>
+                <li><strong>z_std</strong>: 윈도우 표준편차의 z-score</li>
+                <li>둘 다 임계값을 초과하면 drift (평균 이동 + 분산 변화 동시 감지)</li>
+                <li><strong>Score</strong> = max(z_mean, z_std) / z_threshold</li>
+            </ul>
+
+            <h3>파라미터</h3>
+            <table class="info-table">
+                <thead><tr><th>파라미터</th><th>의미</th><th>기본값</th><th>효과</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Window Size</strong></td>
+                        <td>슬라이딩 윈도우 크기</td>
+                        <td>50</td>
+                        <td>클수록 안정적이나 지연 증가</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Reference Ratio</strong></td>
+                        <td>기준 구간 비율</td>
+                        <td>0.5</td>
+                        <td>전체 데이터에서 기준 분포로 사용할 비율</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Z Threshold</strong></td>
+                        <td>Z-score 임계값</td>
+                        <td>3.0</td>
+                        <td>작을수록 민감, 클수록 보수적</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>적합한 상황</h3>
+            <ul>
+                <li>평균 이동과 분산 변화를 동시에 감지하고 싶은 경우</li>
+                <li>단일 클래스(정상) 학습 기반의 이상 탐지가 필요한 경우</li>
+                <li>복합적인 분포 변화를 포착하고 싶은 경우</li>
+            </ul>
+
+            <h3>참고 문헌</h3>
+            <ul>
+                <li>Krawczyk, B. and Wozniak, M. (2015). "One-class classifiers with incremental learning and forgetting for data streams with concept drift." <em>Soft Computing</em>, 19(12), 3387-3400.</li>
+            </ul>
+        </div>
+    </section>
+
+    <!-- 예제 데이터 설명 패널 -->
+    <section class="info-panel" id="example-info" style="display:none;">
+        <div class="info-panel__header">
+            <h2>예제 데이터</h2>
+            <button class="btn-close" onclick="togglePanel('example-info')">닫기</button>
+        </div>
+        <div class="info-panel__body">
+            <h3>데이터 구성</h3>
+            <p>합성 데이터 <strong>300건</strong>으로 구성된다.</p>
+            <table class="info-table">
+                <thead><tr><th>구간</th><th>건수</th><th>평균</th><th>표준편차</th><th>설명</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td><strong>정상 구간</strong></td>
+                        <td>200건</td>
+                        <td>0.90</td>
+                        <td>0.02</td>
+                        <td>AI 모델이 정상적으로 동작하는 상태</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Drift 구간</strong></td>
+                        <td>100건</td>
+                        <td>0.80</td>
+                        <td>0.03</td>
+                        <td>모델 성능 저하 상태</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>차트 읽는 법</h3>
+            <ul>
+                <li><strong>상단 차트</strong>: 원본 값(검정). 빨간 점이 alarm 시점.</li>
+                <li><strong>하단 차트</strong>: Z-score(녹색: 평균, 빨강: 표준편차). 노란 점선이 임계값.</li>
+                <li>두 Z-score 모두 임계값을 넘으면 drift가 감지된 것이다.</li>
+            </ul>
+        </div>
+    </section>
+
+    <section class="ocdd-controls">
+        <h2>Parameters</h2>
+        <div class="param-group">
+            <label>
+                Window Size: <input id="param-window" type="number" value="50" step="10" min="10">
+                <span class="hint">슬라이딩 윈도우 크기</span>
+            </label>
+            <label>
+                Z Threshold: <input id="param-z" type="number" value="3.0" step="0.5" min="0.5">
+                <span class="hint">작을수록 민감</span>
+            </label>
+        </div>
+        <div class="action-buttons">
+            <button onclick="runExample()">Run Example</button>
+        </div>
+    </section>
+
+    <section class="ocdd-charts">
+        <div class="chart-container">
+            <h3>Original Time Series</h3>
+            <canvas id="value-chart"></canvas>
+        </div>
+        <div class="chart-container">
+            <h3>Z-Score Series</h3>
+            <canvas id="stat-chart"></canvas>
+        </div>
+    </section>
+
+    <section class="ocdd-results" id="results-section" style="display:none;">
+        <h2>Detection Results</h2>
+        <div class="stats-cards">
+            <div class="stat-card">
+                <span class="stat-value" id="stat-alarms">-</span>
+                <span class="stat-label">Events</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value" id="stat-score">-</span>
+                <span class="stat-label">Max Score</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value" id="stat-severity">-</span>
+                <span class="stat-label">Max Severity</span>
+            </div>
+        </div>
+        <table id="events-table">
+            <thead><tr><th>Time</th><th>Score</th><th>Severity</th><th>Message</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </section>
+
+</div>
+
+<script src="{{ url_for('ocdd.static', filename='chart.js') }}"></script>
+{% endblock %}
