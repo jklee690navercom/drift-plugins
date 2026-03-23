@@ -30,7 +30,7 @@ def register(app):
         key="hotelling",
         name="Hotelling T2",
         version=__version__,
-        description=" Hotelling T2 제어 차트 기반 다변량 drift 탐지",
+        description="Hotelling T2 다변량 제어 차트 기반 drift 탐지",
         category="statistical",
         card_template="hotelling/card.html",
         page_url="/drift/hotelling/",

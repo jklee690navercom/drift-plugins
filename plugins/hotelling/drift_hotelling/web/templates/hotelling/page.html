@@ -1,9 +1,9 @@
-{%- raw %}{% extends "base.html" %}
+{% extends "base.html" %}
 
-{% block title %}{% endraw %}Hotelling T2 Drift Detection{%- raw %}{% endblock %}
+{% block title %}Hotelling T2 Drift Detection{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="{{ url_for('{% endraw %}hotelling{%- raw %}.static', filename='style.css') }}">
+<link rel="stylesheet" href="{{ url_for('hotelling.static', filename='style.css') }}">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 {% endblock %}
 
@@ -11,8 +11,8 @@
 <div class="plugin-page">
 
     <section class="plugin-header">
-        <h1>{% endraw %}Hotelling T2{%- raw %}</h1>
-        <p>{% endraw %} Hotelling T2 제어 차트 기반 다변량 drift 탐지{%- raw %}</p>
+        <h1>Hotelling T2</h1>
+        <p>Hotelling T2 다변량 제어 차트 기반 drift 탐지</p>
         <div class="info-buttons">
             <button class="btn-info" onclick="togglePanel('algorithm-info')">알고리즘 설명</button>
             <button class="btn-info" onclick="togglePanel('example-info')">예제 데이터 설명</button>
@@ -21,7 +21,7 @@
 
     <section class="info-panel" id="algorithm-info" style="display:none;">
         <div class="info-panel__header">
-            <h2>{% endraw %}Hotelling T2{%- raw %} 알고리즘</h2>
+            <h2>Hotelling T2 알고리즘</h2>
             <button class="btn-close" onclick="togglePanel('algorithm-info')">닫기</button>
         </div>
         <div class="info-panel__body">
@@ -71,5 +71,5 @@
 
 </div>
 
-<script src="{{ url_for('{% endraw %}hotelling{%- raw %}.static', filename='chart.js') }}"></script>
-{% endblock %}{% endraw %}
+<script src="{{ url_for('hotelling.static', filename='chart.js') }}"></script>
+{% endblock %}

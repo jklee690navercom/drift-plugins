@@ -10,7 +10,7 @@ from framework.events.schema import DriftEvent
 class HotellingDetector(DriftDetector):
     """Hotelling T2 drift detector.
 
-     Hotelling T2 제어 차트 기반 다변량 drift 탐지
+    Hotelling T2 다변량 제어 차트 기반 drift 탐지
     """
 
     # ╔══════════════════════════════════════════════════════╗
@@ -18,7 +18,9 @@ class HotellingDetector(DriftDetector):
     # ║  이 알고리즘이 받을 파라미터를 선언하세요.               ║
     # ╚══════════════════════════════════════════════════════╝
     DEFAULT_PARAMS = {
-        "threshold": 1.0,    # ← 파라미터 이름과 기본값을 수정하세요
+        "alpha": 0.01,           # 유의수준 (0.01 = 99% 신뢰구간)
+        "window_size": 50,        # 슬라이딩 윈도우 크기
+        "reference_ratio": 0.5,   # 전체 데이터 중 기준 구간 비율
     }
 
     def detect(self, data, data_ids, stream, params):
@@ -46,6 +48,44 @@ class HotellingDetector(DriftDetector):
         score = 0.0
         message = ""
         detail = {}
+
+        alpha = params["alpha"]
+        window_size = int(params["window_size"])
+        ref_ratio = params["reference_ratio"]
+
+        # 기준 구간 분리
+        ref_end = int(len(series) * ref_ratio)
+        reference = series[:ref_end]
+        ref_mean = np.mean(reference)
+        ref_std = np.std(reference, ddof=1)
+        if ref_std <= 0:
+            ref_std = 1e-8
+
+        # T2 통계량 계산
+        from scipy.stats import chi2
+        threshold = chi2.ppf(1 - alpha, df=1)
+
+        t2_values = np.zeros(len(series))
+        for i in range(ref_end, len(series)):
+            z = (series[i] - ref_mean) / ref_std
+            t2 = z ** 2
+            t2_values[i] = t2
+            if t2 > threshold:
+                alarm_indices.append(i)
+
+        if alarm_indices:
+            peak_idx = alarm_indices[np.argmax(t2_values[alarm_indices])]
+            score = float(t2_values[peak_idx] / threshold)
+            message = f"Hotelling T2={t2_values[peak_idx]:.2f}, threshold={threshold:.2f}"
+            detail = {
+                "algorithm": "hotelling_t2",
+                "threshold": round(threshold, 4),
+                "alpha": alpha,
+                "ref_mean": round(float(ref_mean), 4),
+                "ref_std": round(float(ref_std), 4),
+                "t2_series": t2_values.tolist(),
+                "alarm_mask": [1 if i in alarm_indices else 0 for i in range(len(series))],
+            }
 
         # ▲▲▲ 여기까지 구현하세요 ▲▲▲
 
