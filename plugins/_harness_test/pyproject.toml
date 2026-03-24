@@ -1,0 +1,4 @@
+[project]
+name = "drift-_harness_test"
+version = "1.0.0"
+description = "Harness test plugin"
