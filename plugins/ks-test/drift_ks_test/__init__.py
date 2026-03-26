@@ -1,7 +1,9 @@
 """drift-ks-test: Kolmogorov-Smirnov test drift detection plugin."""
 
 from pathlib import Path
-from flask import Blueprint
+
+from flask import Blueprint, render_template
+
 from .detector import KsTestDetector
 
 __version__ = "1.0.0"
@@ -12,13 +14,17 @@ blueprint = Blueprint(
     "ks_test",
     __name__,
     template_folder=str(_PKG_DIR / "web" / "templates"),
-    static_folder=str(_PKG_DIR / "web" / "static"),
-    static_url_path="/ks-test-static",
     url_prefix="/drift/ks_test",
 )
 
-from .web.routes import register_routes  # noqa: E402
-register_routes(blueprint)
+
+@blueprint.route("/")
+def page():
+    return render_template(
+        "plugin_page.html",
+        plugin_name="KS Test",
+        plugin_key="ks_test",
+    )
 
 
 def register(app):

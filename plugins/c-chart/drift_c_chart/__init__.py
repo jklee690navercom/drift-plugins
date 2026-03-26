@@ -1,7 +1,9 @@
 """drift-c-chart: C Chart (Count Chart) drift detection plugin."""
 
 from pathlib import Path
-from flask import Blueprint
+
+from flask import Blueprint, render_template
+
 from .detector import CChartDetector
 
 __version__ = "1.0.0"
@@ -12,13 +14,17 @@ blueprint = Blueprint(
     "c_chart",
     __name__,
     template_folder=str(_PKG_DIR / "web" / "templates"),
-    static_folder=str(_PKG_DIR / "web" / "static"),
-    static_url_path="/c_chart-static",
     url_prefix="/drift/c_chart",
 )
 
-from .web.routes import register_routes  # noqa: E402
-register_routes(blueprint)
+
+@blueprint.route("/")
+def page():
+    return render_template(
+        "plugin_page.html",
+        plugin_name="C Chart",
+        plugin_key="c_chart",
+    )
 
 
 def register(app):
@@ -37,7 +43,6 @@ def register(app):
         page_url="/drift/c_chart/",
         icon="chart-bar",
         detector_class=CChartDetector,
-        example_data=_PKG_DIR / "examples" / "sample.csv",
         params_schema={
             "reference_ratio": {"type": "float", "default": 0.5, "label": "Reference Ratio", "description": "기준 구간 비율 (0~1)."},
         },

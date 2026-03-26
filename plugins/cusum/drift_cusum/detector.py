@@ -1,26 +1,34 @@
-"""CUSUM drift detector — 기존 cusum_utils.py의 로직을 DriftDetector 인터페이스로 변환."""
+"""CUSUM drift detector — DriftPlugin 기반 운영 환경용."""
+
+from datetime import timedelta
 
 import numpy as np
 import pandas as pd
 
-from framework.plugin.base import DriftDetector
+from framework.plugin.base import DriftPlugin
 from framework.events.schema import DriftEvent
 
 
-class CusumDetector(DriftDetector):
+class CusumDetector(DriftPlugin):
     """누적합(CUSUM) 기반 drift 탐지기.
 
     양방향 CUSUM으로 평균의 상승/하락을 동시에 감지한다.
     입력 시계열을 표준화(median, MAD)한 후 CUSUM 통계량을 계산한다.
     """
 
+    DEFAULT_WINDOW_SIZE = timedelta(days=7)
+    DEFAULT_SUBGROUP_SIZE = timedelta(minutes=5)
     DEFAULT_PARAMS = {
         "k": 0.25,      # slack value (표준화된 단위)
         "h": 5.0,       # threshold (표준화된 단위)
         "reset": True,   # alarm 후 CUSUM 리셋 여부
     }
 
-    def detect(self, data, data_ids, stream, params):
+    def detect(self, data, data_ids, stream, params,
+               calculated_until=None, previous_events=None):
+        if data.empty:
+            return []
+
         params = {**self.DEFAULT_PARAMS, **params}
         series = data["value"].to_numpy(dtype=float)
         timestamps = data["timestamp"]
@@ -44,15 +52,25 @@ class CusumDetector(DriftDetector):
 
         alarm_indices = list(np.where(alarm_mask == 1)[0])
 
+        # ── Cache에 데이터 기록 ──
+        cache_rows = []
+        for i in range(len(series)):
+            cache_rows.append({
+                "timestamp": timestamps.iloc[i],
+                "value": float(series[i]),
+            })
+
+        if self.cache is not None:
+            self.cache.append_data(cache_rows)
+
+        # ── DriftEvent 생성 ──
         if not alarm_indices:
             return []
 
-        # ── DriftEvent 생성 ──
         events = []
         for group_start, group_end in self._group_consecutive(alarm_indices):
-            group_ids = data_ids[group_start:group_end + 1]
+            group_ids = data_ids[group_start:group_end + 1] if data_ids else []
 
-            # 피크 지점 찾기
             peak_idx = group_start + int(np.argmax(
                 np.maximum(s_pos_arr[group_start:group_end + 1],
                            s_neg_arr[group_start:group_end + 1])
@@ -62,7 +80,7 @@ class CusumDetector(DriftDetector):
             score = max(peak_s_pos, peak_s_neg) / h
             direction = "positive" if peak_s_pos >= peak_s_neg else "negative"
 
-            events.append(DriftEvent(
+            ev = DriftEvent(
                 stream=stream,
                 plugin="cusum",
                 detected_at=timestamps.iloc[peak_idx],
@@ -71,7 +89,7 @@ class CusumDetector(DriftDetector):
                 severity=self._score_to_severity(score),
                 detected=True,
                 score=round(score, 4),
-                message=f"CUSUM {direction} alarm: S+={peak_s_pos:.2f}, S-={peak_s_neg:.2f}, H={h:.2f}",
+                message=f"CUSUM {direction}: S+={peak_s_pos:.2f}, S-={peak_s_neg:.2f}",
                 data_ids=group_ids,
                 data_count=len(group_ids),
                 detail={
@@ -83,18 +101,26 @@ class CusumDetector(DriftDetector):
                     "alarm_direction": direction,
                     "median": round(median, 4),
                     "sigma": round(sigma, 4),
-                    "alarm_count": group_end - group_start + 1,
-                    "s_pos_series": s_pos_arr.tolist(),
-                    "s_neg_series": s_neg_arr.tolist(),
-                    "alarm_mask": alarm_mask.tolist(),
                 },
-            ))
+            )
+            events.append(ev)
+
+        # Cache에 DriftEvent 기록
+        if self.cache is not None and events:
+            self.cache.append_events(events)
 
         return events
 
+    def get_chart_config(self):
+        return {
+            "mainLabel": "Value",
+            "yLabel": "Value",
+            "layers": [],
+        }
+
     @staticmethod
     def _cusum_traces(y, k=0.25, h=5.0, reset=True):
-        """양방향 CUSUM 통계량 계산. cusum_utils.cusum_traces()와 동일한 로직."""
+        """양방향 CUSUM 통계량 계산."""
         s_pos_vals = []
         s_neg_vals = []
         alarms = []

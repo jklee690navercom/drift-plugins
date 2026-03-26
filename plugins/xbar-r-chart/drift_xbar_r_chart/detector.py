@@ -1,25 +1,33 @@
-"""X-bar/R Chart drift detector — 서브그룹 평균(X-bar)과 범위(R) 제어 차트 기반 이상 탐지."""
+"""X-bar/R Chart drift detector — DriftPlugin 기반 운영 환경용."""
+
+from datetime import timedelta
 
 import numpy as np
 import pandas as pd
 
-from framework.plugin.base import DriftDetector
+from framework.plugin.base import DriftPlugin
 from framework.events.schema import DriftEvent
 
 
-class XbarRChartDetector(DriftDetector):
+class XbarRChartDetector(DriftPlugin):
     """X-bar/R Chart 기반 drift 탐지기.
 
     데이터를 서브그룹으로 묶어 각 그룹의 평균(X-bar)과 범위(R)를
     모니터링하여 평균 이동과 산포 변화를 감지한다.
     """
 
+    DEFAULT_WINDOW_SIZE = timedelta(days=7)
+    DEFAULT_SUBGROUP_SIZE = timedelta(minutes=5)
     DEFAULT_PARAMS = {
         "subgroup_size": 5,
         "reference_ratio": 0.5,
     }
 
-    def detect(self, data, data_ids, stream, params):
+    def detect(self, data, data_ids, stream, params,
+               calculated_until=None, previous_events=None):
+        if data.empty:
+            return []
+
         params = {**self.DEFAULT_PARAMS, **params}
         series = data["value"].to_numpy(dtype=float)
         timestamps = data["timestamp"]
@@ -69,6 +77,17 @@ class XbarRChartDetector(DriftDetector):
 
         alarm_indices = list(np.where(alarm_combined == 1)[0])
 
+        # ── Cache에 데이터 기록 ──
+        cache_rows = []
+        for i in range(len(series)):
+            cache_rows.append({
+                "timestamp": timestamps.iloc[i],
+                "value": float(series[i]),
+            })
+
+        if self.cache is not None:
+            self.cache.append_data(cache_rows)
+
         if not alarm_indices:
             return []
 
@@ -115,7 +134,18 @@ class XbarRChartDetector(DriftDetector):
                 },
             ))
 
+        # Cache에 DriftEvent 기록
+        if self.cache is not None and events:
+            self.cache.append_events(events)
+
         return events
+
+    def get_chart_config(self):
+        return {
+            "mainLabel": "Value",
+            "yLabel": "Value",
+            "layers": [],
+        }
 
     @staticmethod
     def _group_consecutive(indices, gap=3):

@@ -1,7 +1,9 @@
 """drift-hat: Hoeffding Adaptive Tree inspired drift detection plugin."""
 
 from pathlib import Path
-from flask import Blueprint
+
+from flask import Blueprint, render_template
+
 from .detector import HatDetector
 
 __version__ = "1.0.0"
@@ -12,13 +14,17 @@ blueprint = Blueprint(
     "hat",
     __name__,
     template_folder=str(_PKG_DIR / "web" / "templates"),
-    static_folder=str(_PKG_DIR / "web" / "static"),
-    static_url_path="/hat-static",
     url_prefix="/drift/hat",
 )
 
-from .web.routes import register_routes  # noqa: E402
-register_routes(blueprint)
+
+@blueprint.route("/")
+def page():
+    return render_template(
+        "plugin_page.html",
+        plugin_name="HAT",
+        plugin_key="hat",
+    )
 
 
 def register(app):
@@ -37,7 +43,6 @@ def register(app):
         page_url="/drift/hat/",
         icon="tree",
         detector_class=HatDetector,
-        example_data=_PKG_DIR / "examples" / "sample.csv",
         params_schema={
             "min_window": {"type": "int", "default": 30, "label": "Min Window", "description": "최소 윈도우 크기"},
             "delta": {"type": "float", "default": 0.01, "label": "Delta", "description": "Hoeffding bound confidence."},

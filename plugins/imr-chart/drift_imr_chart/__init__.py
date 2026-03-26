@@ -1,7 +1,9 @@
 """drift-imr-chart: I-MR Chart (Individual-Moving Range) drift detection plugin."""
 
 from pathlib import Path
-from flask import Blueprint
+
+from flask import Blueprint, render_template
+
 from .detector import ImrChartDetector
 
 __version__ = "1.0.0"
@@ -12,13 +14,17 @@ blueprint = Blueprint(
     "imr_chart",
     __name__,
     template_folder=str(_PKG_DIR / "web" / "templates"),
-    static_folder=str(_PKG_DIR / "web" / "static"),
-    static_url_path="/imr_chart-static",
     url_prefix="/drift/imr_chart",
 )
 
-from .web.routes import register_routes  # noqa: E402
-register_routes(blueprint)
+
+@blueprint.route("/")
+def page():
+    return render_template(
+        "plugin_page.html",
+        plugin_name="I-MR Chart",
+        plugin_key="imr_chart",
+    )
 
 
 def register(app):
@@ -37,7 +43,6 @@ def register(app):
         page_url="/drift/imr_chart/",
         icon="chart-line",
         detector_class=ImrChartDetector,
-        example_data=_PKG_DIR / "examples" / "sample.csv",
         params_schema={
             "reference_ratio": {"type": "float", "default": 0.5, "label": "Reference Ratio", "description": "기준 구간 비율 (0~1). 전체 데이터에서 이 비율만큼을 기준 구간으로 사용."},
         },

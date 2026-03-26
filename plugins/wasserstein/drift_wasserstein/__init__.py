@@ -1,7 +1,9 @@
 """drift-wasserstein: Wasserstein distance drift detection plugin."""
 
 from pathlib import Path
-from flask import Blueprint
+
+from flask import Blueprint, render_template
+
 from .detector import WassersteinDetector
 
 __version__ = "1.0.0"
@@ -12,13 +14,17 @@ blueprint = Blueprint(
     "wasserstein",
     __name__,
     template_folder=str(_PKG_DIR / "web" / "templates"),
-    static_folder=str(_PKG_DIR / "web" / "static"),
-    static_url_path="/wasserstein-static",
     url_prefix="/drift/wasserstein",
 )
 
-from .web.routes import register_routes  # noqa: E402
-register_routes(blueprint)
+
+@blueprint.route("/")
+def page():
+    return render_template(
+        "plugin_page.html",
+        plugin_name="Wasserstein",
+        plugin_key="wasserstein",
+    )
 
 
 def register(app):
@@ -37,7 +43,6 @@ def register(app):
         page_url="/drift/wasserstein/",
         icon="chart-area",
         detector_class=WassersteinDetector,
-        example_data=_PKG_DIR / "examples" / "sample.csv",
         params_schema={
             "window_size": {"type": "int", "default": 50, "label": "Window Size", "description": "슬라이딩 윈도우 크기"},
             "reference_ratio": {"type": "float", "default": 0.5, "label": "Reference Ratio", "description": "기준 구간 비율."},

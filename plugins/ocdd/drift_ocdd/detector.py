@@ -1,13 +1,15 @@
-"""OCDD drift detector — 기준 분포 통계량과 슬라이딩 윈도우를 비교하여 drift를 탐지."""
+"""OCDD drift detector — DriftPlugin 기반 운영 환경용."""
+
+from datetime import timedelta
 
 import numpy as np
 import pandas as pd
 
-from framework.plugin.base import DriftDetector
+from framework.plugin.base import DriftPlugin
 from framework.events.schema import DriftEvent
 
 
-class OcddDetector(DriftDetector):
+class OcddDetector(DriftPlugin):
     """One-Class Drift Detector.
 
     기준 구간(reference)의 평균/표준편차와 슬라이딩 윈도우(test)의
@@ -16,13 +18,19 @@ class OcddDetector(DriftDetector):
     Score = max(z_mean, z_std).
     """
 
+    DEFAULT_WINDOW_SIZE = timedelta(days=7)
+    DEFAULT_SUBGROUP_SIZE = timedelta(minutes=5)
     DEFAULT_PARAMS = {
         "window_size": 50,
         "reference_ratio": 0.5,
         "z_threshold": 3.0,
     }
 
-    def detect(self, data, data_ids, stream, params):
+    def detect(self, data, data_ids, stream, params,
+               calculated_until=None, previous_events=None):
+        if data.empty:
+            return []
+
         params = {**self.DEFAULT_PARAMS, **params}
         series = data["value"].to_numpy(dtype=float)
         timestamps = data["timestamp"]
@@ -84,6 +92,17 @@ class OcddDetector(DriftDetector):
                 alarm_mask[mid] = 1
                 alarm_indices.append(mid)
 
+        # ── Cache에 데이터 기록 ──
+        cache_rows = []
+        for i in range(len(series)):
+            cache_rows.append({
+                "timestamp": timestamps.iloc[i],
+                "value": float(series[i]),
+            })
+
+        if self.cache is not None:
+            self.cache.append_data(cache_rows)
+
         if not alarm_indices:
             return []
 
@@ -126,7 +145,18 @@ class OcddDetector(DriftDetector):
                 },
             ))
 
+        # Cache에 DriftEvent 기록
+        if self.cache is not None and events:
+            self.cache.append_events(events)
+
         return events
+
+    def get_chart_config(self):
+        return {
+            "mainLabel": "Value",
+            "yLabel": "Value",
+            "layers": [],
+        }
 
     @staticmethod
     def _group_consecutive(indices, gap=5):

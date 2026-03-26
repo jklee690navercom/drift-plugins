@@ -1,27 +1,35 @@
-"""KS Test drift detector — 슬라이딩 윈도우 KS 검정으로 분포 변화를 탐지."""
+"""KS Test drift detector — DriftPlugin 기반 운영 환경용."""
+
+from datetime import timedelta
 
 import numpy as np
 import pandas as pd
 from scipy import stats
 
-from framework.plugin.base import DriftDetector
+from framework.plugin.base import DriftPlugin
 from framework.events.schema import DriftEvent
 
 
-class KsTestDetector(DriftDetector):
+class KsTestDetector(DriftPlugin):
     """Kolmogorov-Smirnov 검정 기반 drift 탐지기.
 
     기준 구간(reference)과 슬라이딩 윈도우(test)의 분포를 비교하여
     p-value가 유의수준 이하이면 drift로 판단한다.
     """
 
+    DEFAULT_WINDOW_SIZE = timedelta(days=7)
+    DEFAULT_SUBGROUP_SIZE = timedelta(minutes=5)
     DEFAULT_PARAMS = {
         "window_size": 50,
         "alpha": 0.05,
         "reference_ratio": 0.5,
     }
 
-    def detect(self, data, data_ids, stream, params):
+    def detect(self, data, data_ids, stream, params,
+               calculated_until=None, previous_events=None):
+        if data.empty:
+            return []
+
         params = {**self.DEFAULT_PARAMS, **params}
         series = data["value"].to_numpy(dtype=float)
         timestamps = data["timestamp"]
@@ -53,6 +61,17 @@ class KsTestDetector(DriftDetector):
             if pval < alpha:
                 alarm_mask[mid] = 1
                 alarm_indices.append(mid)
+
+        # ── Cache에 데이터 기록 ──
+        cache_rows = []
+        for i in range(len(series)):
+            cache_rows.append({
+                "timestamp": timestamps.iloc[i],
+                "value": float(series[i]),
+            })
+
+        if self.cache is not None:
+            self.cache.append_data(cache_rows)
 
         if not alarm_indices:
             return []
@@ -100,7 +119,18 @@ class KsTestDetector(DriftDetector):
                 },
             ))
 
+        # Cache에 DriftEvent 기록
+        if self.cache is not None and events:
+            self.cache.append_events(events)
+
         return events
+
+    def get_chart_config(self):
+        return {
+            "mainLabel": "Value",
+            "yLabel": "Value",
+            "layers": [],
+        }
 
     @staticmethod
     def _group_consecutive(indices, gap=5):

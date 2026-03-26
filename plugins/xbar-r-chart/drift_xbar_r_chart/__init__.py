@@ -1,7 +1,9 @@
 """drift-xbar-r-chart: X-bar/R Chart drift detection plugin."""
 
 from pathlib import Path
-from flask import Blueprint
+
+from flask import Blueprint, render_template
+
 from .detector import XbarRChartDetector
 
 __version__ = "1.0.0"
@@ -12,13 +14,17 @@ blueprint = Blueprint(
     "xbar_r_chart",
     __name__,
     template_folder=str(_PKG_DIR / "web" / "templates"),
-    static_folder=str(_PKG_DIR / "web" / "static"),
-    static_url_path="/xbar_r_chart-static",
     url_prefix="/drift/xbar_r_chart",
 )
 
-from .web.routes import register_routes  # noqa: E402
-register_routes(blueprint)
+
+@blueprint.route("/")
+def page():
+    return render_template(
+        "plugin_page.html",
+        plugin_name="X-bar/R Chart",
+        plugin_key="xbar_r_chart",
+    )
 
 
 def register(app):
@@ -37,7 +43,6 @@ def register(app):
         page_url="/drift/xbar_r_chart/",
         icon="chart-bar",
         detector_class=XbarRChartDetector,
-        example_data=_PKG_DIR / "examples" / "sample.csv",
         params_schema={
             "subgroup_size": {"type": "int", "default": 5, "label": "Subgroup Size", "description": "서브그룹 크기. 데이터를 이 크기로 묶어서 분석."},
             "reference_ratio": {"type": "float", "default": 0.5, "label": "Reference Ratio", "description": "기준 구간 비율 (0~1)."},

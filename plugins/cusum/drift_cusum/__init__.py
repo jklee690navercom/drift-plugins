@@ -1,7 +1,9 @@
 """drift-cusum: CUSUM drift detection plugin."""
 
 from pathlib import Path
-from flask import Blueprint
+
+from flask import Blueprint, render_template
+
 from .detector import CusumDetector
 
 __version__ = "1.0.0"
@@ -12,13 +14,17 @@ blueprint = Blueprint(
     "cusum",
     __name__,
     template_folder=str(_PKG_DIR / "web" / "templates"),
-    static_folder=str(_PKG_DIR / "web" / "static"),
-    static_url_path="/cusum-static",
     url_prefix="/drift/cusum",
 )
 
-from .web.routes import register_routes  # noqa: E402
-register_routes(blueprint)
+
+@blueprint.route("/")
+def page():
+    return render_template(
+        "plugin_page.html",
+        plugin_name="CUSUM",
+        plugin_key="cusum",
+    )
 
 
 def register(app):
@@ -37,9 +43,8 @@ def register(app):
         page_url="/drift/cusum/",
         icon="chart-line",
         detector_class=CusumDetector,
-        example_data=_PKG_DIR / "examples" / "sample.csv",
         params_schema={
-            "k": {"type": "float", "default": 0.25, "label": "Slack (k)", "description": "허용 편차. 작을수록 민감."},
-            "h": {"type": "float", "default": 5.0, "label": "Threshold (h)", "description": "알람 임계값. 작을수록 빠른 감지."},
+            "k": {"type": "float", "default": 0.25, "label": "Slack (k)"},
+            "h": {"type": "float", "default": 5.0, "label": "Threshold (h)"},
         },
     )

@@ -1,24 +1,32 @@
-"""I-MR Chart drift detector — 개별값(I)과 이동범위(MR) 제어 차트 기반 이상 탐지."""
+"""I-MR Chart drift detector — DriftPlugin 기반 운영 환경용."""
+
+from datetime import timedelta
 
 import numpy as np
 import pandas as pd
 
-from framework.plugin.base import DriftDetector
+from framework.plugin.base import DriftPlugin
 from framework.events.schema import DriftEvent
 
 
-class ImrChartDetector(DriftDetector):
+class ImrChartDetector(DriftPlugin):
     """I-MR Chart 기반 drift 탐지기.
 
     개별 관측값(Individual)과 연속 관측값 간의 이동범위(Moving Range)를
     동시에 모니터링하여 이상을 감지한다.
     """
 
+    DEFAULT_WINDOW_SIZE = timedelta(days=7)
+    DEFAULT_SUBGROUP_SIZE = timedelta(minutes=5)
     DEFAULT_PARAMS = {
         "reference_ratio": 0.5,
     }
 
-    def detect(self, data, data_ids, stream, params):
+    def detect(self, data, data_ids, stream, params,
+               calculated_until=None, previous_events=None):
+        if data.empty:
+            return []
+
         params = {**self.DEFAULT_PARAMS, **params}
         series = data["value"].to_numpy(dtype=float)
         timestamps = data["timestamp"]
@@ -55,6 +63,17 @@ class ImrChartDetector(DriftDetector):
         alarm_mask = (alarm_i | alarm_mr).astype(int)
 
         alarm_indices = list(np.where(alarm_mask == 1)[0])
+
+        # ── Cache에 데이터 기록 ──
+        cache_rows = []
+        for i in range(len(series)):
+            cache_rows.append({
+                "timestamp": timestamps.iloc[i],
+                "value": float(series[i]),
+            })
+
+        if self.cache is not None:
+            self.cache.append_data(cache_rows)
 
         if not alarm_indices:
             return []
@@ -96,7 +115,18 @@ class ImrChartDetector(DriftDetector):
                 },
             ))
 
+        # Cache에 DriftEvent 기록
+        if self.cache is not None and events:
+            self.cache.append_events(events)
+
         return events
+
+    def get_chart_config(self):
+        return {
+            "mainLabel": "Value",
+            "yLabel": "Value",
+            "layers": [],
+        }
 
     @staticmethod
     def _group_consecutive(indices, gap=3):
