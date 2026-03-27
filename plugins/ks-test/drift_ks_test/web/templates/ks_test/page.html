@@ -1,141 +1,117 @@
-{% extends "base.html" %}
-{% block title %}KS Test — Drift Monitor{% endblock %}
+{% extends "plugin_page.html" %}
 
-{% block content %}
-<div style="padding: 16px 24px;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-        <h1 style="margin: 0; font-size: 22px;">KS Test (Kolmogorov-Smirnov)</h1>
-        <div id="pluginStatus" style="font-size: 13px; color: #64748b;"></div>
+{% block plugin_extra %}
+<!-- KS Test 전문가 분석 토글 버튼 -->
+<div style="margin-top: 16px; text-align: right;">
+    <button id="btnKsDetail" onclick="toggleKsDetail()"
+            style="padding: 6px 16px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+        KS Test 전문가 분석 ▼
+    </button>
+</div>
+
+<!-- KS Test 전용 패널 (접이식) -->
+<div id="ks-detail-panel" style="display: none; margin-top: 12px;">
+
+    <!-- 프리셋 -->
+    <div style="margin-bottom: 12px; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">Analysis Mode</div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+            <button class="ks-preset-btn active" data-preset="standard" onclick="selectPreset('standard')">Standard</button>
+            <button class="ks-preset-btn" data-preset="quick" onclick="selectPreset('quick')">Quick Scan</button>
+            <button class="ks-preset-btn" data-preset="precision" onclick="selectPreset('precision')">High Precision</button>
+            <button class="ks-preset-btn" data-preset="streaming" onclick="selectPreset('streaming')">Streaming</button>
+            <button class="ks-preset-btn" data-preset="small_sample" onclick="selectPreset('small_sample')">Small Sample</button>
+        </div>
     </div>
 
-    <!-- 메인 차트 (BaseChart) -->
-    <div style="height: 450px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px;">
-        <canvas id="driftChart"></canvas>
+    <!-- 파라미터 -->
+    <div style="margin-bottom: 12px; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; font-size: 13px;">
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">Basic</div>
+                <label>Window: <input id="param-window" type="number" value="100" step="10" min="10" style="width:60px;"></label><br>
+                <label>Alpha: <input id="param-alpha" type="number" value="0.05" step="0.01" min="0.001" max="0.5" style="width:60px;"></label><br>
+                <label>Ref Ratio: <input id="param-ratio" type="number" value="0.5" step="0.1" min="0.1" max="0.9" style="width:60px;"></label>
+            </div>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">Correction</div>
+                <label><input type="radio" name="correction" value="none"> None</label><br>
+                <label><input type="radio" name="correction" value="bh" checked> BH (FDR)</label><br>
+                <label><input type="radio" name="correction" value="bonferroni"> Bonferroni</label>
+            </div>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">Options</div>
+                <label><input type="checkbox" id="param-update-ref" checked> Update reference</label><br>
+                <label><input type="checkbox" id="param-remove-outliers"> Remove outliers</label>
+            </div>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">Method</div>
+                <label><input type="radio" name="method" value="asymptotic" checked> Asymptotic</label><br>
+                <label><input type="radio" name="method" value="exact"> Exact</label><br>
+                <label><input type="radio" name="method" value="bootstrap"> Bootstrap</label>
+            </div>
+        </div>
+        <div style="margin-top: 8px;">
+            <button onclick="runExample()" style="padding: 6px 24px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                Run Analysis (예제 데이터)
+            </button>
+        </div>
     </div>
-    <div id="chartStatus" style="margin-top: 8px; font-size: 12px; color: #94a3b8;"></div>
 
-    <!-- 컨트롤 -->
-    <div style="margin-top: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-        <label style="font-size: 13px;">
-            폴링:
-            <select id="pollSelect" style="padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 4px;">
-                <option value="5">5초</option>
-                <option value="10" selected>10초</option>
-                <option value="30">30초</option>
-                <option value="0">끄기</option>
-            </select>
-        </label>
-        <button id="reloadBtn" style="padding: 4px 16px; border: 1px solid #e2e8f0; border-radius: 4px; cursor: pointer; background: #f8fafc;">
-            새로고침
-        </button>
-        <span style="flex: 1;"></span>
-        <button id="btnKsDetail" onclick="toggleKsDetail()" style="padding: 6px 16px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
-            KS Test 전문가 분석 ▼
-        </button>
+    <!-- 부가 차트 -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+        <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px;">
+            <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">ECDF Comparison</div>
+            <canvas id="ecdf-chart"></canvas>
+        </div>
+        <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px;">
+            <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">D-statistic</div>
+            <canvas id="ks-stat-chart"></canvas>
+        </div>
+    </div>
+    <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+        <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">p-value (Corrected)</div>
+        <canvas id="pvalue-chart"></canvas>
     </div>
 
-    <!-- KS Test 전용 패널 (접이식) -->
-    <div id="ks-detail-panel" style="display: none; margin-top: 16px;">
-
-        <!-- 프리셋 -->
-        <div style="margin-bottom: 12px; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
-            <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">Analysis Mode</div>
-            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                <button class="preset-btn" data-preset="quick" onclick="selectPreset('quick')">Quick Scan</button>
-                <button class="preset-btn active" data-preset="standard" onclick="selectPreset('standard')">Standard</button>
-                <button class="preset-btn" data-preset="precision" onclick="selectPreset('precision')">High Precision</button>
-                <button class="preset-btn" data-preset="streaming" onclick="selectPreset('streaming')">Streaming</button>
-                <button class="preset-btn" data-preset="small_sample" onclick="selectPreset('small_sample')">Small Sample</button>
+    <!-- 결과 -->
+    <div id="results-section" style="display: none;">
+        <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-alarms" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Events</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-dstat" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Max D-stat</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-pval" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Min p-value</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-type" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Drift Type</span>
             </div>
         </div>
-
-        <!-- 파라미터 -->
-        <div style="margin-bottom: 12px; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; font-size: 13px;">
-                <div>
-                    <div style="font-weight: 600; margin-bottom: 4px;">Basic</div>
-                    <label>Window: <input id="param-window" type="number" value="100" step="10" min="10" style="width:60px;"></label><br>
-                    <label>Alpha: <input id="param-alpha" type="number" value="0.05" step="0.01" min="0.001" max="0.5" style="width:60px;"></label><br>
-                    <label>Ref Ratio: <input id="param-ratio" type="number" value="0.5" step="0.1" min="0.1" max="0.9" style="width:60px;"></label>
-                </div>
-                <div>
-                    <div style="font-weight: 600; margin-bottom: 4px;">Correction</div>
-                    <label><input type="radio" name="correction" value="none"> None</label><br>
-                    <label><input type="radio" name="correction" value="bh" checked> BH (FDR)</label><br>
-                    <label><input type="radio" name="correction" value="bonferroni"> Bonferroni</label>
-                </div>
-                <div>
-                    <div style="font-weight: 600; margin-bottom: 4px;">Options</div>
-                    <label><input type="checkbox" id="param-update-ref" checked> Update reference</label><br>
-                    <label><input type="checkbox" id="param-remove-outliers"> Remove outliers</label>
-                </div>
-                <div>
-                    <div style="font-weight: 600; margin-bottom: 4px;">Method</div>
-                    <label><input type="radio" name="method" value="asymptotic" checked> Asymptotic</label><br>
-                    <label><input type="radio" name="method" value="exact"> Exact</label><br>
-                    <label><input type="radio" name="method" value="bootstrap"> Bootstrap</label>
-                </div>
-            </div>
-            <div style="margin-top: 8px;">
-                <button onclick="runExample()" style="padding: 6px 24px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">Run Analysis (예제 데이터)</button>
-            </div>
-        </div>
-
-        <!-- 부가 차트 -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
-            <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px;">
-                <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">ECDF Comparison</div>
-                <canvas id="ecdf-chart"></canvas>
-            </div>
-            <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px;">
-                <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">D-statistic</div>
-                <canvas id="ks-stat-chart"></canvas>
-            </div>
-        </div>
-        <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
-            <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">p-value (Corrected)</div>
-            <canvas id="pvalue-chart"></canvas>
-        </div>
-
-        <!-- 결과 테이블 -->
-        <div id="results-section" style="display: none;">
-            <div style="display: flex; gap: 12px; margin-bottom: 12px;">
-                <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
-                    <span id="stat-alarms" style="font-size:1.3rem; font-weight:700;">-</span>
-                    <span style="display:block; font-size:0.75rem; color:#94a3b8;">Events</span>
-                </div>
-                <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
-                    <span id="stat-dstat" style="font-size:1.3rem; font-weight:700;">-</span>
-                    <span style="display:block; font-size:0.75rem; color:#94a3b8;">Max D-stat</span>
-                </div>
-                <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
-                    <span id="stat-pval" style="font-size:1.3rem; font-weight:700;">-</span>
-                    <span style="display:block; font-size:0.75rem; color:#94a3b8;">Min p-value</span>
-                </div>
-                <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
-                    <span id="stat-type" style="font-size:1.3rem; font-weight:700;">-</span>
-                    <span style="display:block; font-size:0.75rem; color:#94a3b8;">Drift Type</span>
-                </div>
-            </div>
-            <table id="events-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
-                <thead><tr style="background:#f1f5f9;">
-                    <th style="padding:8px; text-align:left;">Time</th>
-                    <th style="padding:8px;">D-stat</th>
-                    <th style="padding:8px;">p-value</th>
-                    <th style="padding:8px;">Corrected p</th>
-                    <th style="padding:8px;">Severity</th>
-                    <th style="padding:8px;">Type</th>
-                </tr></thead>
-                <tbody></tbody>
-            </table>
-        </div>
+        <table id="events-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+            <thead><tr style="background:#f1f5f9;">
+                <th style="padding:8px; text-align:left;">Time</th>
+                <th style="padding:8px;">D-stat</th>
+                <th style="padding:8px;">p-value</th>
+                <th style="padding:8px;">Corrected p</th>
+                <th style="padding:8px;">Severity</th>
+                <th style="padding:8px;">Type</th>
+            </tr></thead>
+            <tbody></tbody>
+        </table>
     </div>
 </div>
 
 <style>
-.preset-btn { padding: 5px 14px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; cursor: pointer; font-size: 0.82rem; }
-.preset-btn:hover { border-color: #3b82f6; color: #3b82f6; }
-.preset-btn.active { background: #2563eb; color: white; border-color: #2563eb; font-weight: 600; }
+.ks-preset-btn { padding: 5px 14px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; cursor: pointer; font-size: 0.82rem; }
+.ks-preset-btn:hover { border-color: #3b82f6; color: #3b82f6; }
+.ks-preset-btn.active { background: #2563eb; color: white; border-color: #2563eb; font-weight: 600; }
 .severity-critical { color: #dc2626; font-weight: 700; }
 .severity-warning { color: #d97706; font-weight: 600; }
 .severity-normal { color: #16a34a; }
@@ -144,58 +120,6 @@
 </style>
 
 <script>
-// ── BaseChart 기반 메인 차트 ──
-document.addEventListener('DOMContentLoaded', function() {
-    const KEY = 'ks_test';
-    const BASE = '/drift/' + KEY;
-    let chart = null;
-
-    function loadStatus() {
-        fetch(BASE + '/api/status')
-            .then(r => r.json())
-            .then(s => {
-                const el = document.getElementById('pluginStatus');
-                const cu = s.calculated_until ? new Date(s.calculated_until).toLocaleString() : '-';
-                el.textContent = '상태: ' + s.state + ' | 분석 완료: ' + cu + ' | 캐시: ' + s.cache_size + '개';
-            })
-            .catch(() => {});
-    }
-
-    function loadChart() {
-        Promise.all([
-            fetch(BASE + '/api/chart-config').then(r => r.json()),
-            fetch(BASE + '/api/chart-data').then(r => r.json()),
-        ]).then(([config, data]) => {
-            if (chart) chart.destroy();
-            chart = new BaseChart('driftChart', {
-                statusElement: 'chartStatus',
-                mainLabel: config.mainLabel || 'Value',
-                yLabel: config.yLabel || 'Value',
-                y2Label: config.y2Label || 'Statistic',
-                layers: config.layers || [],
-            });
-            chart.load(data);
-            updatePolling();
-            loadStatus();
-        }).catch(err => {
-            document.getElementById('chartStatus').textContent = '차트 로드 실패: ' + err.message;
-        });
-    }
-
-    function updatePolling() {
-        if (!chart) return;
-        chart.stopPolling();
-        const sec = parseInt(document.getElementById('pollSelect').value);
-        if (sec > 0) chart.startPolling(sec, BASE + '/api/chart-update');
-    }
-
-    document.getElementById('pollSelect').addEventListener('change', updatePolling);
-    document.getElementById('reloadBtn').addEventListener('click', function() { loadChart(); loadStatus(); });
-
-    loadChart();
-});
-
-// ── KS Test 전용 패널 토글 ──
 function toggleKsDetail() {
     const panel = document.getElementById('ks-detail-panel');
     const btn = document.getElementById('btnKsDetail');
