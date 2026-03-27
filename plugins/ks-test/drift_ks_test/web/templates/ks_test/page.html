@@ -126,6 +126,8 @@ function toggleKsDetail() {
     if (panel.style.display === 'none') {
         panel.style.display = 'block';
         btn.textContent = 'KS Test 전문가 분석 ▲';
+        // 패널 열릴 때 캐시 데이터로 전문가 차트 자동 로드
+        if (typeof loadExpertFromCache === 'function') loadExpertFromCache();
     } else {
         panel.style.display = 'none';
         btn.textContent = 'KS Test 전문가 분석 ▼';

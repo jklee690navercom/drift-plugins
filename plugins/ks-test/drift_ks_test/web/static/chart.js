@@ -255,3 +255,21 @@ function renderResults(events) {
 
 // 메인 차트는 BaseChart가 담당 (plugin_page.html 패턴)
 // 이 파일의 함수들은 "KS Test 전문가 분석" 패널에서만 사용됨
+
+// 전문가 패널이 열릴 때 Framework 캐시에서 데이터를 가져와 차트를 그림
+function loadExpertFromCache() {
+    fetch('/drift/ks_test/api/chart-data')
+        .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(resp => {
+            if (!resp.data || resp.data.length === 0) return;
+            const events = resp.drift_events || [];
+            if (events.length > 0) {
+                renderCharts(resp.data, events);
+                renderResults(events);
+            } else {
+                // 이벤트 없어도 기본 차트는 표시
+                renderCharts(resp.data, []);
+            }
+        })
+        .catch(() => {});
+}
