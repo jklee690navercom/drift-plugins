@@ -252,3 +252,23 @@ function renderResults(events) {
         tbody.appendChild(tr);
     }
 }
+
+// 페이지 로드 시 Framework 캐시에 데이터가 있으면 자동 표시
+document.addEventListener('DOMContentLoaded', function() {
+    // 표준 API (Framework 스케줄러가 분석한 결과)
+    fetch('/drift/ks_test/api/chart-data')
+        .then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+        .then(resp => {
+            if (resp.data && resp.data.length > 0) {
+                // 캐시 데이터를 플러그인 예제 형식으로 변환
+                const data = resp.data;
+                const events = (resp.drift_events || []).map(e => {
+                    // drift_events가 이미 dict 형태
+                    return e;
+                });
+                renderCharts(data, events);
+                renderResults(events);
+            }
+        })
+        .catch(() => {});  // 캐시 비어있거나 API 없으면 무시
+});
