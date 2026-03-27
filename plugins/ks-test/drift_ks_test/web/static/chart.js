@@ -1,6 +1,5 @@
 /* KS Test 플러그인 차트 — v2.0 프리셋 + ECDF */
 
-let valueChart = null;
 let ksStatChart = null;
 let pvalueChart = null;
 let ecdfChart = null;
@@ -75,15 +74,13 @@ function renderCharts(data, events) {
         const ts = new Date(d.timestamp);
         return ts.toLocaleString('ko-KR', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
     });
-    const values = data.map(d => d.value);
 
-    let alarmMask = [], ksSeries = [], correctedPSeries = [];
+    let ksSeries = [], correctedPSeries = [];
     let alpha = 0.05, correction = 'bh';
     let ecdfRefX = [], ecdfRefY = [], ecdfTestX = [], ecdfTestY = [];
 
     if (events.length > 0 && events[0].detail) {
         const d = events[0].detail;
-        alarmMask = d.alarm_mask || [];
         ksSeries = d.ks_series || [];
         correctedPSeries = d.corrected_pvalue_series || d.pvalue_series || [];
         alpha = d.alpha || 0.05;
@@ -94,37 +91,9 @@ function renderCharts(data, events) {
         ecdfTestY = d.ecdf_test_y || [];
     }
 
-    // 1. Value Chart
-    const valueCtx = document.getElementById('value-chart').getContext('2d');
-    if (valueChart) valueChart.destroy();
-    valueChart = new Chart(valueCtx, {
-        type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Value',
-                data: values,
-                borderColor: '#0f172a',
-                borderWidth: 1.5,
-                pointRadius: 0,
-                fill: false,
-            }, {
-                label: 'Drift Alarm',
-                data: values.map((v, i) => alarmMask[i] ? v : null),
-                borderColor: 'transparent',
-                pointBackgroundColor: '#ef4444',
-                pointRadius: 3,
-                showLine: false,
-            }]
-        },
-        options: {
-            responsive: true,
-            scales: { x: { ticks: { maxTicksLimit: 8 } } },
-            plugins: { legend: { display: true } }
-        }
-    });
+    // 메인 차트는 BaseChart가 담당 — 전문가 패널은 ECDF, D-stat, p-value만 렌더링
 
-    // 2. ECDF Chart
+    // 1. ECDF Chart
     const ecdfCtx = document.getElementById('ecdf-chart').getContext('2d');
     if (ecdfChart) ecdfChart.destroy();
     const ecdfRefData = ecdfRefX.map((x, i) => ({x: x, y: ecdfRefY[i]}));
@@ -162,7 +131,7 @@ function renderCharts(data, events) {
         }
     });
 
-    // 3. D-statistic Chart
+    // 2. D-statistic Chart
     const ksCtx = document.getElementById('ks-stat-chart').getContext('2d');
     if (ksStatChart) ksStatChart.destroy();
     ksStatChart = new Chart(ksCtx, {
@@ -185,7 +154,7 @@ function renderCharts(data, events) {
         }
     });
 
-    // 4. p-value Chart (corrected)
+    // 3. p-value Chart (corrected)
     const pCtx = document.getElementById('pvalue-chart').getContext('2d');
     if (pvalueChart) pvalueChart.destroy();
     const pvalLog = correctedPSeries.map(p => p > 0 && p < 1 ? -Math.log10(p) : 0);
