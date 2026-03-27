@@ -69,14 +69,27 @@ class KsTestDetector(DriftPlugin):
         if ref_end < window_size or (n - ref_end) < window_size:
             return []
 
-        reference = clean_series[:ref_end]
+        full_reference = clean_series[:ref_end]
+
+        # Reference가 너무 크면 서브샘플링 (검정력 유지, 속도 개선)
+        max_ref_size = window_size * 10
+        if len(full_reference) > max_ref_size:
+            ref_indices = np.random.choice(
+                len(full_reference), max_ref_size, replace=False)
+            ref_indices.sort()
+            reference = full_reference[ref_indices]
+        else:
+            reference = full_reference
 
         # ── Phase 2: 슬라이딩 윈도우 KS 검정 ──
         ks_stats = np.zeros(n)
         raw_p_values = np.ones(n)
         test_indices = []
 
-        for i in range(ref_end, n - window_size + 1):
+        # 윈도우 이동 스텝: 데이터가 많으면 건너뛰어 속도 확보
+        step = max(1, window_size // 5)
+
+        for i in range(ref_end, n - window_size + 1, step):
             window = clean_series[i:i + window_size]
             if method == "bootstrap":
                 stat, pval = self._bootstrap_ks(reference, window)
