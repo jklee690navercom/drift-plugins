@@ -14,6 +14,8 @@ blueprint = Blueprint(
     "ks_test",
     __name__,
     template_folder=str(_PKG_DIR / "web" / "templates"),
+    static_folder=str(_PKG_DIR / "web" / "static"),
+    static_url_path="/static",
     url_prefix="/drift/ks_test",
 )
 
@@ -21,7 +23,7 @@ blueprint = Blueprint(
 @blueprint.route("/")
 def page():
     return render_template(
-        "plugin_page.html",
+        "ks_test/page.html",
         plugin_name="KS Test",
         plugin_key="ks_test",
     )
