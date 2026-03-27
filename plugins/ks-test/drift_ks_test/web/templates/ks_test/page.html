@@ -14,8 +14,8 @@
 
     <!-- 전문가 차트 새로고침 -->
     <div style="margin-bottom: 8px; text-align: right;">
-        <button onclick="loadExpertFromCache()"
-                style="padding: 4px 16px; border: 1px solid #e2e8f0; border-radius: 4px; cursor: pointer; background: #f8fafc; font-size: 13px;">
+        <button id="btnExpertRefresh" onclick="onExpertRefresh()"
+                style="padding: 6px 20px; border: none; border-radius: 6px; cursor: pointer; background: #0ea5e9; color: white; font-size: 13px; font-weight: 600;">
             전문가 차트 새로고침
         </button>
     </div>
@@ -128,6 +128,19 @@
 </style>
 
 <script>
+function onExpertRefresh() {
+    const btn = document.getElementById('btnExpertRefresh');
+    btn.textContent = '로딩 중...';
+    btn.style.background = '#94a3b8';
+    btn.disabled = true;
+    loadExpertFromCache();
+    setTimeout(() => {
+        btn.textContent = '전문가 차트 새로고침';
+        btn.style.background = '#0ea5e9';
+        btn.disabled = false;
+    }, 1000);
+}
+
 function toggleKsDetail() {
     const panel = document.getElementById('ks-detail-panel');
     const btn = document.getElementById('btnKsDetail');
