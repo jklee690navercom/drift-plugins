@@ -89,6 +89,10 @@ class KsTestDetector(DriftPlugin):
         # 윈도우 이동 스텝: 데이터가 많으면 건너뛰어 속도 확보
         step = max(1, window_size // 5)
 
+        # 기준 갱신용 상태
+        consecutive_alarms = 0
+        ref_update_threshold = 3  # 연속 alarm 이만큼이면 기준 갱신
+
         for i in range(ref_end, n - window_size + 1, step):
             window = clean_series[i:i + window_size]
             if method == "bootstrap":
@@ -102,6 +106,15 @@ class KsTestDetector(DriftPlugin):
             ks_stats[mid] = stat
             raw_p_values[mid] = pval
             test_indices.append(mid)
+
+            # 기준 윈도우 갱신 (루프 내에서 즉시)
+            if update_ref and pval < alpha:
+                consecutive_alarms += 1
+                if consecutive_alarms >= ref_update_threshold:
+                    reference = window.copy()
+                    consecutive_alarms = 0
+            else:
+                consecutive_alarms = 0
 
         # ── Phase 3: 다중 검정 보정 ──
         corrected_p = np.ones(n)
@@ -149,8 +162,8 @@ class KsTestDetector(DriftPlugin):
         if not alarm_indices:
             return []
 
-        # 기준 갱신을 위한 그룹화
-        groups = self._group_consecutive(alarm_indices)
+        # 기준 갱신을 위한 그룹화 (gap을 step의 3배로 설정)
+        groups = self._group_consecutive(alarm_indices, gap=step * 3)
         events = []
         current_ref = reference.copy()
 
@@ -215,10 +228,7 @@ class KsTestDetector(DriftPlugin):
                 },
             ))
 
-            # 기준 윈도우 갱신
-            if update_ref:
-                ref_start = max(0, group_end - window_size + 1)
-                current_ref = clean_series[ref_start:group_end + 1]
+            # (기준 윈도우 갱신은 Phase 2 루프 안에서 이미 수행됨)
 
         if self.cache is not None and events:
             self.cache.append_events(events)
