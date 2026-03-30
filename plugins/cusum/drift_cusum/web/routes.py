@@ -33,12 +33,18 @@ def register_routes(bp: Blueprint):
     def page():
         return render_template("cusum/page.html")
 
-    @bp.route("/api/example")
+    @bp.route("/api/example", methods=["GET", "POST"])
     def example():
-        """예제 데이터로 CUSUM 실행."""
+        """예제 데이터로 CUSUM 실행. POST 시 params를 받을 수 있다."""
         import pandas as pd
         import numpy as np
         from pathlib import Path
+
+        # POST 요청에서 파라미터 추출
+        params = {}
+        if request.method == "POST" and request.is_json:
+            body = request.get_json(silent=True) or {}
+            params = body.get("params", {})
 
         # 예제 CSV가 없으면 합성 데이터 생성
         example_dir = Path(__file__).resolve().parent.parent / "examples"
@@ -63,7 +69,7 @@ def register_routes(bp: Blueprint):
             data=df,
             data_ids=data_ids,
             stream="example",
-            params={},
+            params=params,
         )
 
         return _jsonify({

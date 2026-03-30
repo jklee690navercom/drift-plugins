@@ -4,26 +4,27 @@ from datetime import timedelta
 
 import numpy as np
 import pandas as pd
-from scipy import stats as sp_stats
 
 from framework.plugin.base import DriftPlugin
 from framework.events.schema import DriftEvent
 
 
 class MewmaDetector(DriftPlugin):
-    """MEWMA(Multivariate EWMA) 기반 drift 탐지기 (단변량 적용).
+    """EWMA 관리도 기반 drift 탐지기.
 
-    EWMA 평활화: z_t = lambda * x_t + (1 - lambda) * z_{t-1}
-    D² 통계량: (z_t - ref_mean)² / ref_var
-    chi2(1) 임계값을 초과하면 drift로 판단한다.
+    EWMA 평활화 후 관리한계(UCL/LCL)를 이용해 drift를 판단한다.
+    UCL = μ0 + L * σ0 * sqrt(λ/(2-λ))
+    LCL = μ0 - L * σ0 * sqrt(λ/(2-λ))
     """
 
     DEFAULT_WINDOW_SIZE = timedelta(days=7)
     DEFAULT_SUBGROUP_SIZE = timedelta(minutes=5)
     DEFAULT_PARAMS = {
-        "lambda_": 0.1,
-        "reference_ratio": 0.5,
-        "alpha": 0.01,
+        "lambda_": 0.2,
+        "L": 3.0,
+        "baseline_ratio": 0.5,
+        "cooldown": 5,
+        "two_sided": True,
     }
 
     def detect(self, data, data_ids, stream, params,
@@ -37,58 +38,79 @@ class MewmaDetector(DriftPlugin):
         n = len(series)
 
         lam = float(params["lambda_"])
-        ref_ratio = float(params["reference_ratio"])
-        alpha = float(params["alpha"])
+        L = float(params["L"])
+        baseline_ratio = float(params["baseline_ratio"])
+        cooldown = int(params.get("cooldown", 5))
+        two_sided = bool(params.get("two_sided", True))
 
-        # ── 기준 구간 ──
-        ref_end = int(n * ref_ratio)
-        if ref_end < 10 or (n - ref_end) < 10:
+        # ── Baseline estimation ──
+        baseline_end = int(n * baseline_ratio)
+        if baseline_end < 10 or (n - baseline_end) < 10:
             return []
 
-        reference = series[:ref_end]
-        ref_mean = float(np.mean(reference))
-        ref_var = float(np.var(reference))
-        if ref_var <= 0:
-            ref_var = 1e-12
+        baseline = series[:baseline_end]
+        mu0 = float(np.mean(baseline))
+        sigma0 = float(np.std(baseline, ddof=1))
+        if sigma0 <= 0:
+            sigma0 = 1e-8
 
-        # ── EWMA 평활화 ──
+        # ── EWMA calculation ──
         z = np.zeros(n)
-        z[0] = series[0]
+        z[0] = mu0  # initialize to baseline mean
         for t in range(1, n):
             z[t] = lam * series[t] + (1 - lam) * z[t - 1]
 
-        # ── D² 통계량 ──
-        d_squared = (z - ref_mean) ** 2 / ref_var
+        # ── Control Limits ──
+        ewma_std = sigma0 * np.sqrt(lam / (2 - lam))
+        ucl = mu0 + L * ewma_std
+        lcl = mu0 - L * ewma_std
 
-        # ── chi2(1) 임계값 ──
-        threshold = sp_stats.chi2.ppf(1 - alpha, df=1)
-
+        # ── Alarm detection (after baseline, with cooldown) ──
         alarm_mask = np.zeros(n, dtype=int)
-        alarm_mask[ref_end:] = (d_squared[ref_end:] > threshold).astype(int)
+        direction_arr = [""] * n
+        last_alarm = -cooldown - 1
+
+        for t in range(baseline_end, n):
+            if t - last_alarm <= cooldown:
+                continue
+            if z[t] > ucl:
+                alarm_mask[t] = 1
+                direction_arr[t] = "upper"
+                last_alarm = t
+            elif two_sided and z[t] < lcl:
+                alarm_mask[t] = 1
+                direction_arr[t] = "lower"
+                last_alarm = t
+
         alarm_indices = list(np.where(alarm_mask == 1)[0])
 
-        # ── Cache에 데이터 기록 ──
+        # ── Cache ──
         cache_rows = []
-        for i in range(len(series)):
+        for i in range(n):
             cache_rows.append({
                 "timestamp": timestamps.iloc[i],
                 "value": float(series[i]),
+                "ewma": float(z[i]),
             })
-
         if self.cache is not None:
             self.cache.append_data(cache_rows)
 
         if not alarm_indices:
             return []
 
-        # ── DriftEvent 생성 ──
+        # ── DriftEvent generation ──
         events = []
         for group_start, group_end in self._group_consecutive(alarm_indices):
             group_ids = data_ids[group_start:group_end + 1]
 
-            peak_idx = group_start + int(np.argmax(d_squared[group_start:group_end + 1]))
-            peak_d2 = float(d_squared[peak_idx])
-            score = peak_d2 / threshold
+            # Peak = point with max deviation from mean
+            deviations = np.abs(z[group_start:group_end + 1] - mu0)
+            peak_offset = int(np.argmax(deviations))
+            peak_idx = group_start + peak_offset
+            peak_z = float(z[peak_idx])
+            peak_dev = abs(peak_z - mu0)
+            score = peak_dev / (L * ewma_std) if ewma_std > 0 else 0
+            direction = direction_arr[peak_idx] or ("upper" if peak_z > mu0 else "lower")
 
             events.append(DriftEvent(
                 stream=stream,
@@ -99,25 +121,27 @@ class MewmaDetector(DriftPlugin):
                 severity=self._score_to_severity(score),
                 detected=True,
                 score=round(score, 4),
-                message=f"MEWMA alarm: D²={peak_d2:.2f}, threshold={threshold:.2f} (alpha={alpha})",
+                message=f"EWMA {direction}: z={peak_z:.4f}, UCL={ucl:.4f}, LCL={lcl:.4f}",
                 data_ids=group_ids,
                 data_count=len(group_ids),
                 detail={
                     "algorithm": "mewma",
-                    "d_squared_peak": round(peak_d2, 4),
-                    "threshold": round(threshold, 4),
+                    "ewma_value": round(peak_z, 4),
+                    "ucl": round(ucl, 4),
+                    "lcl": round(lcl, 4),
+                    "mu0": round(mu0, 4),
+                    "sigma0": round(sigma0, 4),
                     "lambda": lam,
-                    "alpha": alpha,
-                    "ref_mean": round(ref_mean, 4),
-                    "ref_var": round(ref_var, 6),
-                    "alarm_count": group_end - group_start + 1,
+                    "L": L,
+                    "direction": direction,
+                    "baseline_end": int(baseline_end),
+                    "ewma_std": round(float(ewma_std), 4),
+                    "alarm_count": int(group_end - group_start + 1),
                     "ewma_series": z.tolist(),
-                    "d_squared_series": d_squared.tolist(),
                     "alarm_mask": alarm_mask.tolist(),
                 },
             ))
 
-        # Cache에 DriftEvent 기록
         if self.cache is not None and events:
             self.cache.append_events(events)
 

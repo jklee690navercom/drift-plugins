@@ -1,4 +1,4 @@
-"""CUSUM drift detector — DriftPlugin 기반 운영 환경용."""
+"""CUSUM drift detector — DriftPlugin 기반 운영 환경용. v2.0"""
 
 from datetime import timedelta
 
@@ -13,15 +13,19 @@ class CusumDetector(DriftPlugin):
     """누적합(CUSUM) 기반 drift 탐지기.
 
     양방향 CUSUM으로 평균의 상승/하락을 동시에 감지한다.
-    입력 시계열을 표준화(median, MAD)한 후 CUSUM 통계량을 계산한다.
+    Baseline 구간에서 μ0, σ0를 계산한 후 모니터링 구간에 CUSUM을 적용한다.
+    robust(median/MAD) 또는 standard(mean/std) 표준화를 지원한다.
+    FIR(Fast Initial Response) 옵션으로 초기 감지 속도를 향상할 수 있다.
     """
 
     DEFAULT_WINDOW_SIZE = timedelta(days=7)
     DEFAULT_SUBGROUP_SIZE = timedelta(minutes=5)
     DEFAULT_PARAMS = {
-        "k": 0.25,      # slack value (표준화된 단위)
-        "h": 5.0,       # threshold (표준화된 단위)
-        "reset": True,   # alarm 후 CUSUM 리셋 여부
+        "k": 0.25,              # slack value (표준화된 단위)
+        "h": 5.0,               # threshold (표준화된 단위)
+        "reset": True,          # alarm 후 CUSUM 리셋 여부
+        "baseline_ratio": 0.5,  # baseline 구간 비율
+        "robust": True,         # True: median/MAD, False: mean/std
     }
 
     def detect(self, data, data_ids, stream, params,
@@ -33,21 +37,35 @@ class CusumDetector(DriftPlugin):
         series = data["value"].to_numpy(dtype=float)
         timestamps = data["timestamp"]
 
-        # ── 표준화 (robust: median + MAD) ──
-        median = float(np.median(series))
-        mad = float(np.median(np.abs(series - median)))
-        sigma = 1.4826 * mad
-        if sigma <= 0:
-            sigma = 1e-8
-        standardized = (series - median) / sigma
+        # ── Baseline 분리 ──
+        baseline_ratio = params.get("baseline_ratio", 0.5)
+        baseline_end = max(1, int(len(series) * baseline_ratio))
+        baseline = series[:baseline_end]
+        robust = params.get("robust", True)
+
+        # ── 표준화 파라미터 계산 (baseline 구간) ──
+        if robust:
+            mu0 = float(np.median(baseline))
+            mad = float(np.median(np.abs(baseline - mu0)))
+            sigma0 = 1.4826 * mad
+        else:
+            mu0 = float(np.mean(baseline))
+            sigma0 = float(np.std(baseline, ddof=1))
+
+        if sigma0 <= 0:
+            sigma0 = 1e-8
+
+        # ── 전체 시계열 표준화 ──
+        standardized = (series - mu0) / sigma0
 
         # ── CUSUM 계산 ──
         k = params["k"]
         h = params["h"]
         reset = params["reset"]
+        fir = params.get("fir", None)
 
         s_pos_arr, s_neg_arr, alarm_mask = self._cusum_traces(
-            standardized, k=k, h=h, reset=reset,
+            standardized, k=k, h=h, reset=reset, fir=fir,
         )
 
         alarm_indices = list(np.where(alarm_mask == 1)[0])
@@ -58,6 +76,8 @@ class CusumDetector(DriftPlugin):
             cache_rows.append({
                 "timestamp": timestamps.iloc[i],
                 "value": float(series[i]),
+                "s_pos": float(s_pos_arr[i]),
+                "s_neg": float(s_neg_arr[i]),
             })
 
         if self.cache is not None:
@@ -99,8 +119,17 @@ class CusumDetector(DriftPlugin):
                     "threshold_h": h,
                     "k": k,
                     "alarm_direction": direction,
-                    "median": round(median, 4),
-                    "sigma": round(sigma, 4),
+                    "mu0": round(mu0, 4),
+                    "sigma0": round(sigma0, 4),
+                    "baseline_end": int(baseline_end),
+                    "robust": robust,
+                    "s_pos_series": [round(float(v), 4) for v in s_pos_arr],
+                    "s_neg_series": [round(float(v), 4) for v in s_neg_arr],
+                    "z_series": [round(float(v), 4) for v in standardized],
+                    "alarm_mask": alarm_mask.tolist(),
+                    # 하위 호환: 이전 코드에서 사용하던 키
+                    "median": round(mu0, 4),
+                    "sigma": round(sigma0, 4),
                 },
             )
             events.append(ev)
@@ -119,13 +148,33 @@ class CusumDetector(DriftPlugin):
         }
 
     @staticmethod
-    def _cusum_traces(y, k=0.25, h=5.0, reset=True):
-        """양방향 CUSUM 통계량 계산."""
+    def _cusum_traces(y, k=0.25, h=5.0, reset=True, fir=None):
+        """양방향 CUSUM 통계량 계산.
+
+        Parameters
+        ----------
+        y : array-like
+            표준화된 시계열
+        k : float
+            slack value
+        h : float
+            threshold
+        reset : bool
+            alarm 후 리셋 여부
+        fir : float or None
+            Fast Initial Response. 설정 시 S+, S-를 fir*h 로 초기화.
+        """
         s_pos_vals = []
         s_neg_vals = []
         alarms = []
-        s_pos = 0.0
-        s_neg = 0.0
+
+        if fir is not None:
+            s_pos = float(fir * h)
+            s_neg = float(fir * h)
+        else:
+            s_pos = 0.0
+            s_neg = 0.0
+
         for v in y:
             s_pos = max(0.0, s_pos + v - k)
             s_neg = max(0.0, s_neg - v - k)
@@ -134,8 +183,12 @@ class CusumDetector(DriftPlugin):
             s_neg_vals.append(s_neg)
             alarms.append(alarm)
             if alarm and reset:
-                s_pos = 0.0
-                s_neg = 0.0
+                if fir is not None:
+                    s_pos = float(fir * h)
+                    s_neg = float(fir * h)
+                else:
+                    s_pos = 0.0
+                    s_neg = 0.0
         return np.array(s_pos_vals), np.array(s_neg_vals), np.array(alarms, dtype=int)
 
     @staticmethod

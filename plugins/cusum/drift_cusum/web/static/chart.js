@@ -1,115 +1,160 @@
-/* CUSUM 플러그인 차트 */
+/* CUSUM 플러그인 전문가 차트 — v2.0 */
 
-let valueChart = null;
-let cusumChart = null;
+let cusumStatChart = null;
+let zscoreChart = null;
 
-function togglePanel(id) {
-    const panel = document.getElementById(id);
-    const isVisible = panel.style.display !== 'none';
-    // 다른 패널 닫기
-    document.querySelectorAll('.info-panel').forEach(p => p.style.display = 'none');
-    document.querySelectorAll('.btn-info').forEach(b => b.classList.remove('active'));
-    if (!isVisible) {
-        panel.style.display = 'block';
-        // 해당 버튼 active
-        const buttons = document.querySelectorAll('.btn-info');
-        buttons.forEach(b => {
-            if (b.getAttribute('onclick').includes(id)) b.classList.add('active');
-        });
-    }
+function loadExpertFromCache() {
+    fetch('/drift/cusum/api/chart-data')
+        .then(r => r.json())
+        .then(data => {
+            if (data.drift_events && data.drift_events.length > 0) {
+                const detail = data.drift_events[data.drift_events.length - 1].detail || {};
+                renderExpertCharts(data.data, detail);
+                renderResults(data.drift_events);
+            }
+        })
+        .catch(err => console.error('Expert load error:', err));
 }
 
 function runExample() {
-    fetch('/drift/cusum/api/example')
-        .then(r => r.json())
-        .then(resp => {
-            renderCharts(resp.data, resp.events);
+    const params = getParams();
+    fetch('/drift/cusum/api/example', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({params: params}),
+    })
+    .then(r => r.json())
+    .then(resp => {
+        if (resp.events && resp.events.length > 0) {
+            const detail = resp.events[resp.events.length - 1].detail || {};
+            renderExpertCharts(resp.data, detail);
             renderResults(resp.events);
-        })
-        .catch(err => console.error('Error:', err));
+        }
+    })
+    .catch(err => console.error('Error:', err));
 }
 
-function renderCharts(data, events) {
-    const labels = data.map(d => {
+function getParams() {
+    const firVal = document.getElementById('param-fir').value;
+    return {
+        k: parseFloat(document.getElementById('param-k').value),
+        h: parseFloat(document.getElementById('param-h').value),
+        baseline_ratio: parseFloat(document.getElementById('param-baseline').value),
+        reset: document.getElementById('param-reset').checked,
+        robust: document.getElementById('param-robust').checked,
+        fir: firVal ? parseFloat(firVal) : null,
+    };
+}
+
+function renderExpertCharts(data, detail) {
+    const labels = (data || []).map(d => {
         const ts = new Date(d.timestamp);
         return ts.toLocaleString('ko-KR', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
     });
-    const values = data.map(d => d.value);
 
-    // 알람 포인트 (events의 detail에서 alarm_mask 사용)
-    let alarmMask = [];
-    if (events.length > 0 && events[0].detail && events[0].detail.alarm_mask) {
-        alarmMask = events[0].detail.alarm_mask;
+    const sPosData = detail.s_pos_series || [];
+    const sNegData = detail.s_neg_series || [];
+    const zScoreData = detail.z_series || [];
+    const threshold = detail.threshold_h || 5.0;
+    const alarmMask = detail.alarm_mask || [];
+    const baselineEnd = detail.baseline_end || 0;
+
+    // CUSUM S+/S- chart
+    const ctx1 = document.getElementById('cusum-stat-chart');
+    if (!ctx1) return;
+    if (cusumStatChart) cusumStatChart.destroy();
+
+    const datasets = [
+        {
+            label: 'S+ (상향)',
+            data: sPosData,
+            borderColor: '#22c55e',
+            borderWidth: 1.5,
+            pointRadius: 0,
+            fill: false,
+        },
+        {
+            label: 'S- (하향)',
+            data: sNegData,
+            borderColor: '#ef4444',
+            borderWidth: 1.5,
+            pointRadius: 0,
+            fill: false,
+        },
+        {
+            label: 'Threshold (h=' + threshold.toFixed(1) + ')',
+            data: Array(labels.length).fill(threshold),
+            borderColor: '#f59e0b',
+            borderDash: [5, 5],
+            borderWidth: 1,
+            pointRadius: 0,
+            fill: false,
+        },
+    ];
+
+    // Alarm points
+    if (alarmMask.length > 0) {
+        const alarmVals = sPosData.map((sp, i) =>
+            alarmMask[i] ? Math.max(sp, sNegData[i] || 0) : null);
+        datasets.push({
+            label: 'Alarm',
+            data: alarmVals,
+            borderColor: 'transparent',
+            pointBackgroundColor: '#dc2626',
+            pointRadius: 4,
+            showLine: false,
+        });
     }
 
-    // Value Chart
-    const valueCtx = document.getElementById('value-chart').getContext('2d');
-    if (valueChart) valueChart.destroy();
-    valueChart = new Chart(valueCtx, {
+    cusumStatChart = new Chart(ctx1.getContext('2d'), {
         type: 'line',
-        data: {
-            labels: labels,
-            datasets: [{
-                label: 'Value',
-                data: values,
-                borderColor: '#0f172a',
-                borderWidth: 1.5,
-                pointRadius: 0,
-                fill: false,
-            }, {
-                label: 'Alarm',
-                data: values.map((v, i) => alarmMask[i] ? v : null),
-                borderColor: 'transparent',
-                pointBackgroundColor: '#ef4444',
-                pointRadius: 4,
-                showLine: false,
-            }]
-        },
+        data: { labels: labels, datasets: datasets },
         options: {
             responsive: true,
             scales: {
                 x: { display: true, ticks: { maxTicksLimit: 10 } },
-                y: { display: true }
+                y: { display: true, beginAtZero: true, title: { display: true, text: 'CUSUM Statistic' } }
             },
-            plugins: { legend: { display: true } }
+            plugins: {
+                legend: { display: true },
+                annotation: baselineEnd > 0 ? {
+                    annotations: {
+                        baselineLine: {
+                            type: 'line',
+                            xMin: baselineEnd,
+                            xMax: baselineEnd,
+                            borderColor: '#6366f1',
+                            borderWidth: 2,
+                            borderDash: [4, 4],
+                            label: { display: true, content: 'Baseline End', position: 'start' }
+                        }
+                    }
+                } : {}
+            }
         }
     });
 
-    // CUSUM Chart
-    let sPosData = [];
-    let sNegData = [];
-    let threshold = 5.0;
-    if (events.length > 0 && events[0].detail) {
-        sPosData = events[0].detail.s_pos_series || [];
-        sNegData = events[0].detail.s_neg_series || [];
-        threshold = events[0].detail.threshold_h || 5.0;
-    }
+    // Z-score chart
+    const ctx2 = document.getElementById('zscore-chart');
+    if (!ctx2) return;
+    if (zscoreChart) zscoreChart.destroy();
 
-    const cusumCtx = document.getElementById('cusum-chart').getContext('2d');
-    if (cusumChart) cusumChart.destroy();
-    cusumChart = new Chart(cusumCtx, {
+    zscoreChart = new Chart(ctx2.getContext('2d'), {
         type: 'line',
         data: {
             labels: labels,
             datasets: [{
-                label: 'S+ (positive)',
-                data: sPosData,
-                borderColor: '#22c55e',
-                borderWidth: 1.5,
+                label: 'z-score',
+                data: zScoreData,
+                borderColor: '#6366f1',
+                borderWidth: 1,
                 pointRadius: 0,
                 fill: false,
             }, {
-                label: 'S- (negative)',
-                data: sNegData,
-                borderColor: '#ef4444',
-                borderWidth: 1.5,
-                pointRadius: 0,
-                fill: false,
-            }, {
-                label: 'Threshold (H)',
-                data: Array(labels.length).fill(threshold),
-                borderColor: '#f59e0b',
-                borderDash: [5, 5],
+                label: '\u00b1k zone',
+                data: Array(labels.length).fill(0),
+                borderColor: '#94a3b8',
+                borderDash: [3, 3],
                 borderWidth: 1,
                 pointRadius: 0,
                 fill: false,
@@ -119,7 +164,7 @@ function renderCharts(data, events) {
             responsive: true,
             scales: {
                 x: { display: true, ticks: { maxTicksLimit: 10 } },
-                y: { display: true, beginAtZero: true }
+                y: { display: true, title: { display: true, text: 'Standardized Value' } }
             },
             plugins: { legend: { display: true } }
         }
@@ -128,26 +173,44 @@ function renderCharts(data, events) {
 
 function renderResults(events) {
     const section = document.getElementById('results-section');
-    if (events.length === 0) {
-        section.style.display = 'none';
+    if (!events || events.length === 0) {
+        if (section) section.style.display = 'none';
         return;
     }
-    section.style.display = 'block';
+    if (section) section.style.display = 'block';
 
-    document.getElementById('stat-alarms').textContent = events.length;
-    document.getElementById('stat-score').textContent = Math.max(...events.map(e => e.score)).toFixed(2);
-    document.getElementById('stat-severity').textContent = events.reduce((max, e) =>
-        e.severity === 'critical' ? 'critical' : (max === 'critical' ? max : e.severity), 'normal');
+    const el = id => document.getElementById(id);
+    if (el('stat-alarms')) el('stat-alarms').textContent = events.length;
+    if (el('stat-score')) el('stat-score').textContent = Math.max(...events.map(e => e.score)).toFixed(2);
+
+    // Direction
+    const dirs = events.map(e => (e.detail || {}).alarm_direction || '-');
+    const hasPos = dirs.includes('positive');
+    const hasNeg = dirs.includes('negative');
+    const dirText = hasPos && hasNeg ? 'Both' : hasPos ? 'Positive \u2191' : hasNeg ? 'Negative \u2193' : '-';
+    if (el('stat-direction')) el('stat-direction').textContent = dirText;
+
+    // Baseline info
+    if (events.length > 0 && events[0].detail) {
+        const d = events[0].detail;
+        const mu = (d.mu0 !== undefined) ? d.mu0.toFixed(3) : '-';
+        const sig = (d.sigma0 !== undefined) ? d.sigma0.toFixed(3) : '-';
+        if (el('stat-baseline')) el('stat-baseline').textContent = mu + ' / ' + sig;
+    }
 
     const tbody = document.querySelector('#events-table tbody');
+    if (!tbody) return;
     tbody.innerHTML = '';
     for (const e of events) {
+        const d = e.detail || {};
         const tr = document.createElement('tr');
         tr.innerHTML = `
-            <td>${e.detected_at}</td>
+            <td>${e.detected_at || '-'}</td>
+            <td>${(d.s_pos !== undefined) ? d.s_pos.toFixed(2) : '-'}</td>
+            <td>${(d.s_neg !== undefined) ? d.s_neg.toFixed(2) : '-'}</td>
             <td>${e.score.toFixed(2)}</td>
             <td><span class="severity-${e.severity}">${e.severity}</span></td>
-            <td>${e.message}</td>
+            <td>${d.alarm_direction || '-'}</td>
         `;
         tbody.appendChild(tr);
     }

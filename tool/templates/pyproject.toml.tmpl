@@ -3,23 +3,22 @@ requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "drift-mewma"
-version = "2.0.0"
-description = "EWMA control chart drift detection plugin for drift-framework"
+name = "drift-[[key]]"
+version = "[[version]]"
+description = "[[description]]"
 requires-python = ">=3.11"
 dependencies = [
     "drift-framework>=0.1,<1.0",
-    "matplotlib>=3.8",
 ]
 
 [project.entry-points."drift_framework.plugins"]
-mewma = "drift_mewma:register"
+[[key]] = "drift_[[key_underscore]]:register"
 
 [tool.setuptools.packages.find]
-include = ["drift_mewma*"]
+include = ["drift_[[key_underscore]]*"]
 
 [tool.setuptools.package-data]
-drift_mewma = [
+drift_[[key_underscore]] = [
     "web/templates/**/*",
     "web/static/**/*",
     "examples/*.csv",
