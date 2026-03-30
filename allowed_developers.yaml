@@ -1,2 +1,4 @@
-allowed_developers:
+admin:
+  - jklee690navercom
+developers:
   - jklee690navercom
