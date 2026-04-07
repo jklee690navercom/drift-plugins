@@ -1,4 +1,4 @@
-"""OCDD drift detector — DriftPlugin 기반 운영 환경용."""
+"""OCDD drift detector — IQR 기반 outlier ratio 방식 v2.0."""
 
 from datetime import timedelta
 
@@ -10,20 +10,19 @@ from framework.events.schema import DriftEvent
 
 
 class OcddDetector(DriftPlugin):
-    """One-Class Drift Detector.
+    """One-Class Drift Detector (IQR-based).
 
-    기준 구간(reference)의 평균/표준편차와 슬라이딩 윈도우(test)의
-    평균/표준편차를 비교하여 z-score가 임계값을 초과하면 drift로 판단.
-    평균 변화와 표준편차 변화를 모두 감지하며, 둘 다 임계값을 넘으면 alarm.
-    Score = max(z_mean, z_std).
+    Baseline 구간에서 IQR(사분위 범위)을 계산한 뒤,
+    슬라이딩 윈도우 내 outlier 비율(alpha)이 rho를 초과하면 drift로 판단.
+    Drift 감지 시 최근 inlier 중 상위 (1-rho)*100%만 남기고 재학습.
     """
 
     DEFAULT_WINDOW_SIZE = timedelta(days=7)
     DEFAULT_SUBGROUP_SIZE = timedelta(minutes=5)
     DEFAULT_PARAMS = {
-        "window_size": 50,
-        "reference_ratio": 0.5,
-        "z_threshold": 3.0,
+        "window_size": 100,
+        "rho": 0.3,
+        "baseline_ratio": 0.3333,
     }
 
     def detect(self, data, data_ids, stream, params,
@@ -37,67 +36,57 @@ class OcddDetector(DriftPlugin):
         n = len(series)
 
         window_size = int(params["window_size"])
-        ref_ratio = float(params["reference_ratio"])
-        z_threshold = float(params["z_threshold"])
+        rho = float(params["rho"])
+        baseline_ratio = float(params["baseline_ratio"])
 
-        # ── 기준 구간 ──
-        ref_end = int(n * ref_ratio)
-        if ref_end < window_size or (n - ref_end) < window_size:
+        # -- Baseline: IQR 계산 --
+        baseline_end = int(n * baseline_ratio)
+        if baseline_end < 10 or n <= baseline_end + window_size:
             return []
 
-        reference = series[:ref_end]
-        ref_mean = float(np.mean(reference))
-        ref_std = float(np.std(reference))
-        if ref_std <= 0:
-            ref_std = 1e-12
+        baseline = series[:baseline_end]
+        q1 = float(np.percentile(baseline, 25))
+        q3 = float(np.percentile(baseline, 75))
+        iqr = float(q3 - q1)
+        if iqr <= 0:
+            iqr = 1e-12
 
-        # 기준 구간에서 윈도우 평균/표준편차의 분포 추정
-        ref_win_means = []
-        ref_win_stds = []
-        for i in range(0, ref_end - window_size + 1, max(1, window_size // 5)):
-            w = reference[i:i + window_size]
-            ref_win_means.append(np.mean(w))
-            ref_win_stds.append(np.std(w))
-        ref_win_mean_mu = float(np.mean(ref_win_means))
-        ref_win_mean_sigma = float(np.std(ref_win_means))
-        ref_win_std_mu = float(np.mean(ref_win_stds))
-        ref_win_std_sigma = float(np.std(ref_win_stds))
-        if ref_win_mean_sigma <= 0:
-            ref_win_mean_sigma = 1e-12
-        if ref_win_std_sigma <= 0:
-            ref_win_std_sigma = 1e-12
+        lower_bound = float(q1 - 1.5 * iqr)
+        upper_bound = float(q3 + 1.5 * iqr)
 
-        # ── 슬라이딩 윈도우 Z-score ──
-        z_mean_series = np.zeros(n)
-        z_std_series = np.zeros(n)
-        z_max_series = np.zeros(n)
+        # -- Outlier 판별 (전체 시리즈) --
+        is_outlier = np.array(
+            [(0 if lower_bound <= float(v) <= upper_bound else 1) for v in series],
+            dtype=int,
+        )
+
+        # -- 슬라이딩 윈도우로 outlier ratio 계산 --
+        outlier_ratio_series = np.zeros(n, dtype=float)
         alarm_mask = np.zeros(n, dtype=int)
         alarm_indices = []
 
-        for i in range(ref_end, n - window_size + 1):
-            window = series[i:i + window_size]
-            win_mean = float(np.mean(window))
-            win_std = float(np.std(window))
-
-            z_mean = abs(win_mean - ref_win_mean_mu) / ref_win_mean_sigma
-            z_std = abs(win_std - ref_win_std_mu) / ref_win_std_sigma
-
+        for i in range(baseline_end, n - window_size + 1):
+            window_outliers = is_outlier[i:i + window_size]
+            alpha = float(np.sum(window_outliers)) / window_size
             mid = i + window_size // 2
-            z_mean_series[mid] = z_mean
-            z_std_series[mid] = z_std
-            z_max_series[mid] = max(z_mean, z_std)
+            outlier_ratio_series[mid] = alpha
 
-            # 둘 다 임계값 초과 시 alarm
-            if z_mean > z_threshold and z_std > z_threshold:
+            if alpha >= rho:
                 alarm_mask[mid] = 1
                 alarm_indices.append(mid)
 
-        # ── Cache에 데이터 기록 ──
+        # -- Cache에 데이터 기록 --
+        # 전문가 차트가 cache.data에서 직접 series를 읽도록
+        # outlier_ratio, alarm, is_outlier, rho를 row마다 적재한다.
         cache_rows = []
-        for i in range(len(series)):
+        for i in range(n):
             cache_rows.append({
                 "timestamp": timestamps.iloc[i],
                 "value": float(series[i]),
+                "outlier_ratio": float(outlier_ratio_series[i]),
+                "alarm": int(alarm_mask[i]),
+                "is_outlier": int(is_outlier[i]),
+                "rho": float(rho),
             })
 
         if self.cache is not None:
@@ -106,15 +95,17 @@ class OcddDetector(DriftPlugin):
         if not alarm_indices:
             return []
 
-        # ── DriftEvent 생성 ──
+        # -- DriftEvent 생성 --
         events = []
         for group_start, group_end in self._group_consecutive(alarm_indices):
             group_ids = data_ids[group_start:group_end + 1]
 
-            peak_idx = group_start + int(np.argmax(z_max_series[group_start:group_end + 1]))
-            peak_z_mean = float(z_mean_series[peak_idx])
-            peak_z_std = float(z_std_series[peak_idx])
-            score = max(peak_z_mean, peak_z_std) / z_threshold
+            # peak: outlier ratio가 가장 높은 지점
+            peak_idx = group_start + int(
+                np.argmax(outlier_ratio_series[group_start:group_end + 1])
+            )
+            peak_alpha = float(outlier_ratio_series[peak_idx])
+            score = float(peak_alpha / rho) if rho > 0 else 0.0
 
             events.append(DriftEvent(
                 stream=stream,
@@ -124,24 +115,28 @@ class OcddDetector(DriftPlugin):
                 data_to=timestamps.iloc[group_end],
                 severity=self._score_to_severity(score),
                 detected=True,
-                score=round(score, 4),
-                message=f"OCDD alarm: z_mean={peak_z_mean:.2f}, z_std={peak_z_std:.2f}, threshold={z_threshold:.1f}",
+                score=round(float(score), 4),
+                message=(
+                    f"OCDD alarm: outlier_ratio={peak_alpha:.3f}, "
+                    f"rho={rho:.2f}, IQR=[{lower_bound:.4f}, {upper_bound:.4f}]"
+                ),
                 data_ids=group_ids,
-                data_count=len(group_ids),
+                data_count=int(len(group_ids)),
                 detail={
-                    "algorithm": "ocdd",
-                    "z_mean_peak": round(peak_z_mean, 4),
-                    "z_std_peak": round(peak_z_std, 4),
-                    "z_threshold": z_threshold,
-                    "window_size": window_size,
-                    "reference_size": ref_end,
-                    "ref_mean": round(ref_mean, 4),
-                    "ref_std": round(ref_std, 4),
-                    "alarm_count": group_end - group_start + 1,
-                    "z_mean_series": z_mean_series.tolist(),
-                    "z_std_series": z_std_series.tolist(),
-                    "z_max_series": z_max_series.tolist(),
-                    "alarm_mask": alarm_mask.tolist(),
+                    "algorithm": "ocdd_iqr",
+                    "q1": round(float(q1), 6),
+                    "q3": round(float(q3), 6),
+                    "iqr": round(float(iqr), 6),
+                    "lower_bound": round(float(lower_bound), 6),
+                    "upper_bound": round(float(upper_bound), 6),
+                    "rho": float(rho),
+                    "window_size": int(window_size),
+                    "baseline_end": int(baseline_end),
+                    "peak_alpha": round(float(peak_alpha), 4),
+                    "alarm_count": int(group_end - group_start + 1),
+                    "outlier_ratio_series": [float(x) for x in outlier_ratio_series.tolist()],
+                    "alarm_mask": [int(x) for x in alarm_mask.tolist()],
+                    "is_outlier": [int(x) for x in is_outlier.tolist()],
                 },
             ))
 

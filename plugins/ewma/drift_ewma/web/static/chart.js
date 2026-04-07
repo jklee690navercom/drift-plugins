@@ -1,9 +1,9 @@
-/* Hotelling T² 플러그인 전문가 차트 — v2.0 */
+/* EWMA 플러그인 전문가 차트 — v2.0 */
 
-let t2Chart = null;
+let ewmaChart = null;
 
 function loadExpertFromCache() {
-    fetch('/drift/hotelling/api/chart-data')
+    fetch('/drift/ewma/api/chart-data')
         .then(r => r.json())
         .then(data => {
             const rows = data.data || [];
@@ -19,7 +19,7 @@ function loadExpertFromCache() {
 
 function runExample() {
     const params = getParams();
-    fetch('/drift/hotelling/api/example', {
+    fetch('/drift/ewma/api/example', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({params: params}),
@@ -37,10 +37,11 @@ function runExample() {
 
 function getParams() {
     return {
-        alpha: parseFloat(document.getElementById('param-alpha').value),
-        window_size: parseInt(document.getElementById('param-window').value),
+        lambda_: parseFloat(document.getElementById('param-lambda').value),
+        L: parseFloat(document.getElementById('param-L').value),
         baseline_ratio: parseFloat(document.getElementById('param-baseline').value),
-        shrinkage: parseFloat(document.getElementById('param-shrinkage').value),
+        cooldown: parseInt(document.getElementById('param-cooldown').value),
+        two_sided: document.getElementById('param-twosided').checked,
     };
 }
 
@@ -51,33 +52,47 @@ function renderExpertCharts(data, detail) {
     });
 
     const rows = data || [];
-    const hasRowSeries = rows.length > 0 && rows[0].t2 !== undefined;
-    const t2Series = hasRowSeries ? rows.map(r => r.t2)
-                                  : (detail.t2_series || []);
+    const values = rows.map(d => d.value);
+    // series는 cache row에서 직접 (detector가 row마다 적재); 없으면 detail fallback.
+    const hasRowSeries = rows.length > 0 && rows[0].ewma !== undefined;
+    const ewmaSeries = hasRowSeries ? rows.map(r => r.ewma)
+                                    : (detail.ewma_series || []);
     const alarmMask = hasRowSeries ? rows.map(r => r.alarm || 0)
                                    : (detail.alarm_mask || []);
-    const threshold = hasRowSeries
-        ? (rows[rows.length - 1].threshold || 3.84)
-        : (detail.threshold || 3.84);
+    const ucl = hasRowSeries ? (rows[rows.length - 1].ucl || 0)
+                             : (detail.ucl || 0);
+    const lcl = hasRowSeries ? (rows[rows.length - 1].lcl || 0)
+                             : (detail.lcl || 0);
+    const mu0 = hasRowSeries ? (rows[rows.length - 1].mu0 || 0)
+                             : (detail.mu0 || 0);
     const baselineEnd = detail.baseline_end || 0;
 
-    const ctx = document.getElementById('t2-chart');
+    const ctx = document.getElementById('ewma-chart');
     if (!ctx) return;
-    if (t2Chart) t2Chart.destroy();
+    if (ewmaChart) ewmaChart.destroy();
 
     const datasets = [
         {
-            label: 'T² statistic',
-            data: t2Series,
-            borderColor: '#8b5cf6',
-            borderWidth: 2,
+            label: 'Value',
+            data: values,
+            borderColor: '#94a3b8',
+            borderWidth: 1,
+            pointRadius: 0,
+            fill: false,
+            order: 5,
+        },
+        {
+            label: 'EWMA',
+            data: ewmaSeries,
+            borderColor: '#3b82f6',
+            borderWidth: 2.5,
             pointRadius: 0,
             fill: false,
             order: 2,
         },
         {
-            label: 'Threshold (' + threshold.toFixed(2) + ')',
-            data: Array(labels.length).fill(threshold),
+            label: 'UCL (' + ucl.toFixed(4) + ')',
+            data: Array(labels.length).fill(ucl),
             borderColor: '#ef4444',
             borderDash: [6, 3],
             borderWidth: 1.5,
@@ -85,11 +100,31 @@ function renderExpertCharts(data, detail) {
             fill: false,
             order: 3,
         },
+        {
+            label: 'LCL (' + lcl.toFixed(4) + ')',
+            data: Array(labels.length).fill(lcl),
+            borderColor: '#ef4444',
+            borderDash: [6, 3],
+            borderWidth: 1.5,
+            pointRadius: 0,
+            fill: false,
+            order: 3,
+        },
+        {
+            label: 'μ0 (' + mu0.toFixed(4) + ')',
+            data: Array(labels.length).fill(mu0),
+            borderColor: '#22c55e',
+            borderDash: [4, 4],
+            borderWidth: 1,
+            pointRadius: 0,
+            fill: false,
+            order: 4,
+        },
     ];
 
-    // Alarm points on T² line
+    // Alarm points on EWMA line
     if (alarmMask.length > 0) {
-        const alarmVals = t2Series.map((v, i) => alarmMask[i] ? v : null);
+        const alarmVals = ewmaSeries.map((z, i) => alarmMask[i] ? z : null);
         datasets.push({
             label: 'Alarm',
             data: alarmVals,
@@ -103,14 +138,14 @@ function renderExpertCharts(data, detail) {
         });
     }
 
-    t2Chart = new Chart(ctx.getContext('2d'), {
+    ewmaChart = new Chart(ctx.getContext('2d'), {
         type: 'line',
         data: { labels: labels, datasets: datasets },
         options: {
             responsive: true,
             scales: {
                 x: { display: true, ticks: { maxTicksLimit: 10 } },
-                y: { display: true, beginAtZero: true, title: { display: true, text: 'T² Value' } }
+                y: { display: true, title: { display: true, text: 'EWMA Value' } }
             },
             plugins: {
                 legend: { display: true },
@@ -144,17 +179,19 @@ function renderResults(events) {
     if (el('stat-alarms')) el('stat-alarms').textContent = events.length;
     if (el('stat-score')) el('stat-score').textContent = Math.max(...events.map(e => e.score)).toFixed(2);
 
-    // Severity
-    const maxSev = events.reduce((max, e) =>
-        e.severity === 'critical' ? 'critical' : (max === 'critical' ? max : e.severity), 'normal');
-    if (el('stat-severity')) el('stat-severity').textContent = maxSev;
+    // Direction
+    const dirs = events.map(e => (e.detail || {}).direction || '-');
+    const hasUpper = dirs.includes('upper');
+    const hasLower = dirs.includes('lower');
+    const dirText = hasUpper && hasLower ? 'Both' : hasUpper ? 'Upper ↑' : hasLower ? 'Lower ↓' : '-';
+    if (el('stat-direction')) el('stat-direction').textContent = dirText;
 
     // Baseline info
     if (events.length > 0 && events[0].detail) {
         const d = events[0].detail;
-        const mu = (d.ref_mean !== undefined) ? d.ref_mean.toFixed(3) : '-';
-        const v = (d.reg_var !== undefined) ? d.reg_var.toFixed(4) : '-';
-        if (el('stat-baseline')) el('stat-baseline').textContent = mu + ' / ' + v;
+        const mu = (d.mu0 !== undefined) ? d.mu0.toFixed(3) : '-';
+        const sig = (d.sigma0 !== undefined) ? d.sigma0.toFixed(3) : '-';
+        if (el('stat-baseline')) el('stat-baseline').textContent = mu + ' / ' + sig;
     }
 
     const tbody = document.querySelector('#events-table tbody');
@@ -165,10 +202,10 @@ function renderResults(events) {
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>${e.detected_at || '-'}</td>
-            <td>${(d.peak_t2 !== undefined) ? d.peak_t2.toFixed(4) : '-'}</td>
+            <td>${(d.ewma_value !== undefined) ? d.ewma_value.toFixed(4) : '-'}</td>
             <td>${e.score.toFixed(2)}</td>
             <td><span class="severity-${e.severity}">${e.severity}</span></td>
-            <td style="text-align:left; font-size:12px;">${e.message || '-'}</td>
+            <td>${d.direction || '-'}</td>
         `;
         tbody.appendChild(tr);
     }

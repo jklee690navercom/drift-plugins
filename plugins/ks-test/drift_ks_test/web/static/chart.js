@@ -79,10 +79,20 @@ function renderCharts(data, events) {
     let alpha = 0.05, correction = 'bh';
     let ecdfRefX = [], ecdfRefY = [], ecdfTestX = [], ecdfTestY = [];
 
-    if (events.length > 0 && events[0].detail) {
-        const d = events[0].detail;
-        ksSeries = d.ks_series || [];
-        correctedPSeries = d.corrected_pvalue_series || d.pvalue_series || [];
+    // 시계열 series는 cache row에서 직접 (detector가 row마다 적재).
+    const hasRowSeries = data.length > 0 && data[0].ks !== undefined;
+    if (hasRowSeries) {
+        ksSeries = data.map(d => d.ks);
+        correctedPSeries = data.map(d => d.corrected_p);
+    }
+
+    // alpha/correction/ECDF는 마지막 event.detail에서 (cache에 못 넣는 메타).
+    if (events.length > 0 && events[events.length - 1].detail) {
+        const d = events[events.length - 1].detail;
+        if (!hasRowSeries) {
+            ksSeries = d.ks_series || [];
+            correctedPSeries = d.corrected_pvalue_series || d.pvalue_series || [];
+        }
         alpha = d.alpha || 0.05;
         correction = d.correction || 'none';
         ecdfRefX = d.ecdf_ref_x || [];
@@ -232,13 +242,9 @@ function loadExpertFromCache() {
         .then(resp => {
             if (!resp.data || resp.data.length === 0) return;
             const events = resp.drift_events || [];
-            if (events.length > 0) {
-                renderCharts(resp.data, events);
-                renderResults(events);
-            } else {
-                // 이벤트 없어도 기본 차트는 표시
-                renderCharts(resp.data, []);
-            }
+            // cache row에 series가 들어 있으므로 event 유무와 무관하게 차트 렌더.
+            renderCharts(resp.data, events);
+            if (events.length > 0) renderResults(events);
         })
         .catch(() => {});
 }

@@ -1,4 +1,7 @@
-"""Hotelling T2 drift detector — DriftPlugin 기반 운영 환경용."""
+"""Hotelling T2 drift detector — DriftPlugin 기반 운영 환경용.
+
+v2.0: 공분산 shrinkage 정규화, chi2 임계값, baseline 분리.
+"""
 
 from datetime import timedelta
 
@@ -12,15 +15,20 @@ from framework.events.schema import DriftEvent
 class HotellingDetector(DriftPlugin):
     """Hotelling T2 drift detector.
 
-    Hotelling T2 다변량 제어 차트 기반 drift 탐지
+    Hotelling T2 다변량 제어 차트 기반 drift 탐지.
+    - Shrinkage 정규화로 수치 안정성 확보
+    - Chi-squared 분포 기반 임계값 (univariate: df=1)
+    - Baseline 분리로 기준 분포 설정
+    - 슬라이딩 윈도우 T² 계산
     """
 
     DEFAULT_WINDOW_SIZE = timedelta(days=7)
     DEFAULT_SUBGROUP_SIZE = timedelta(minutes=5)
     DEFAULT_PARAMS = {
-        "alpha": 0.01,
+        "alpha": 0.05,
         "window_size": 50,
-        "reference_ratio": 0.5,
+        "baseline_ratio": 0.5,
+        "shrinkage": 0.01,
     }
 
     def detect(self, data, data_ids, stream, params,
@@ -37,60 +45,84 @@ class HotellingDetector(DriftPlugin):
         message = ""
         detail = {}
 
-        alpha = params["alpha"]
+        alpha = float(params["alpha"])
         window_size = int(params["window_size"])
-        ref_ratio = params["reference_ratio"]
+        baseline_ratio = float(params["baseline_ratio"])
+        shrinkage = float(params["shrinkage"])
 
-        # 기준 구간 분리
-        ref_end = int(len(series) * ref_ratio)
-        if ref_end < window_size or (len(series) - ref_end) < window_size:
+        # ── Baseline 분리 ──
+        baseline_end = int(len(series) * baseline_ratio)
+        if baseline_end < 2 or (len(series) - baseline_end) < window_size:
             return []
 
-        reference = series[:ref_end]
-        ref_mean = float(np.mean(reference))
-        ref_var = float(np.var(reference, ddof=1))
-        if ref_var <= 0:
-            ref_var = 1e-8
+        baseline = series[:baseline_end]
+        ref_mean = float(np.mean(baseline))
+        ref_var = float(np.var(baseline, ddof=1))
 
+        # Shrinkage 정규화: Σ_reg = (1-s)*Σ + s*I
+        # univariate: σ²_reg = (1-s)*σ² + s
+        reg_var = (1 - shrinkage) * ref_var + shrinkage
+        if reg_var <= 0:
+            reg_var = 1e-8
+
+        # Chi-squared 임계값 (univariate: p=1)
         from scipy.stats import chi2
-        threshold = float(chi2.ppf(1 - alpha, df=1))
+        p = 1  # univariate dimension
+        threshold = float(chi2.ppf(1 - alpha, df=p))
 
+        # ── 슬라이딩 윈도우 T² 계산 ──
         t2_values = np.zeros(len(series))
         alarm_mask = np.zeros(len(series), dtype=int)
 
-        for i in range(ref_end, len(series) - window_size + 1):
+        for i in range(baseline_end, len(series) - window_size + 1):
             window = series[i:i + window_size]
-            window_mean = np.mean(window)
+            window_mean = float(np.mean(window))
             diff = window_mean - ref_mean
-            t2 = window_size * (diff ** 2) / ref_var
+            # T² = n * (x̄ - μ)² / σ²_reg (univariate Hotelling)
+            t2 = float(window_size * (diff ** 2) / reg_var)
             mid = i + window_size // 2
             t2_values[mid] = t2
             if t2 > threshold:
                 alarm_mask[mid] = 1
                 alarm_indices.append(mid)
 
+        # t2_series를 Python float 리스트로 변환
+        t2_series = [float(v) for v in t2_values]
+        alarm_mask_list = [int(v) for v in alarm_mask]
+
         if alarm_indices:
             peak_idx = alarm_indices[int(np.argmax(t2_values[alarm_indices]))]
             peak_t2 = float(t2_values[peak_idx])
-            score = peak_t2 / threshold
-            message = f"Hotelling T²={peak_t2:.2f}, threshold={threshold:.2f} (alpha={alpha})"
+            score = float(peak_t2 / threshold)
+            message = (f"Hotelling T²={peak_t2:.2f}, "
+                       f"threshold={threshold:.2f} (chi2, alpha={alpha}), "
+                       f"shrinkage={shrinkage}")
             detail = {
                 "algorithm": "hotelling_t2",
-                "threshold": round(threshold, 4),
-                "alpha": alpha,
-                "window_size": window_size,
-                "ref_mean": round(ref_mean, 4),
-                "ref_var": round(ref_var, 6),
-                "t2_series": t2_values.tolist(),
-                "alarm_mask": alarm_mask.tolist(),
+                "threshold": float(round(threshold, 4)),
+                "alpha": float(alpha),
+                "window_size": int(window_size),
+                "baseline_ratio": float(baseline_ratio),
+                "baseline_end": int(baseline_end),
+                "shrinkage": float(shrinkage),
+                "ref_mean": float(round(ref_mean, 4)),
+                "ref_var": float(round(ref_var, 6)),
+                "reg_var": float(round(reg_var, 6)),
+                "peak_t2": float(round(peak_t2, 4)),
+                "t2_series": t2_series,
+                "alarm_mask": alarm_mask_list,
             }
 
         # ── Cache에 데이터 기록 ──
+        # 전문가 차트가 cache.data에서 직접 series를 읽도록 t2/alarm/threshold 적재.
         cache_rows = []
         for i in range(len(series)):
             cache_rows.append({
                 "timestamp": timestamps.iloc[i],
                 "value": float(series[i]),
+                "t2": float(t2_series[i]),
+                "alarm": int(alarm_mask_list[i]),
+                "threshold": float(threshold),
             })
 
         if self.cache is not None:
@@ -109,10 +141,10 @@ class HotellingDetector(DriftPlugin):
                 data_to=timestamps.iloc[group_end],
                 severity=self._score_to_severity(score),
                 detected=True,
-                score=round(score, 4),
+                score=float(round(score, 4)),
                 message=message,
                 data_ids=data_ids[group_start:group_end + 1],
-                data_count=group_end - group_start + 1,
+                data_count=int(group_end - group_start + 1),
                 detail=detail,
             ))
 

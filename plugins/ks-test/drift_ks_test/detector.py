@@ -150,11 +150,18 @@ class KsTestDetector(DriftPlugin):
         ecdf_test_x, ecdf_test_y = self._compute_ecdf(test_window)
 
         # Cache에 데이터 기록
+        # 전문가 차트가 cache.data에서 직접 series를 읽도록
+        # ks, raw_p, corrected_p, alarm을 row마다 적재한다.
+        # (KS는 step 단위로만 계산되므로 그 외 위치는 ks=0, p=1로 적재)
         cache_rows = []
         for i in range(len(series)):
             cache_rows.append({
                 "timestamp": timestamps.iloc[i],
                 "value": float(series[i]),
+                "ks": float(ks_stats[i]),
+                "raw_p": float(raw_p_values[i]),
+                "corrected_p": float(corrected_p[i]),
+                "alarm": int(alarm_mask[i]),
             })
         if self.cache is not None:
             self.cache.append_data(cache_rows)
