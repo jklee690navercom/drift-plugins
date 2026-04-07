@@ -1,4 +1,4 @@
-/* CUSUM 플러그인 전문가 차트 — v2.0 */
+/* CUSUM 플러그인 전문가 차트 — v2.1 */
 
 let cusumStatChart = null;
 let zscoreChart = null;
@@ -7,11 +7,15 @@ function loadExpertFromCache() {
     fetch('/drift/cusum/api/chart-data')
         .then(r => r.json())
         .then(data => {
-            if (data.drift_events && data.drift_events.length > 0) {
-                const detail = data.drift_events[data.drift_events.length - 1].detail || {};
-                renderExpertCharts(data.data, detail);
-                renderResults(data.drift_events);
-            }
+            const rows = data.data || [];
+            const events = data.drift_events || [];
+            // event가 없어도 cache row에 series가 있으면 차트를 그린다.
+            if (rows.length === 0) return;
+            // baseline_end / h_source 같은 메타는 마지막 event에서만 가져온다.
+            const lastEv = events.length > 0 ? events[events.length - 1] : null;
+            const detail = (lastEv && lastEv.detail) || {};
+            renderExpertCharts(rows, detail);
+            renderResults(events);
         })
         .catch(err => console.error('Expert load error:', err));
 }
@@ -29,6 +33,11 @@ function runExample() {
             const detail = resp.events[resp.events.length - 1].detail || {};
             renderExpertCharts(resp.data, detail);
             renderResults(resp.events);
+            // Show calibrated h in the input when auto mode
+            if (resp.calibrated_h != null) {
+                const hInput = document.getElementById('param-h');
+                if (hInput) hInput.value = resp.calibrated_h.toFixed(2);
+            }
         }
     })
     .catch(err => console.error('Error:', err));
@@ -36,27 +45,48 @@ function runExample() {
 
 function getParams() {
     const firVal = document.getElementById('param-fir').value;
-    return {
+    const autoH = document.getElementById('param-auto-h');
+    const isAutoH = autoH && autoH.checked;
+    const params = {
         k: parseFloat(document.getElementById('param-k').value),
-        h: parseFloat(document.getElementById('param-h').value),
+        h: isAutoH ? 'auto' : parseFloat(document.getElementById('param-h').value),
         baseline_ratio: parseFloat(document.getElementById('param-baseline').value),
         reset: document.getElementById('param-reset').checked,
         robust: document.getElementById('param-robust').checked,
         fir: firVal ? parseFloat(firVal) : null,
     };
+    if (isAutoH) {
+        const calB = document.getElementById('param-cal-B');
+        const calQ = document.getElementById('param-cal-q');
+        if (calB) params.calibration_B = parseInt(calB.value) || 500;
+        if (calQ) params.calibration_q = parseFloat(calQ.value) || 0.995;
+    }
+    return params;
 }
 
 function renderExpertCharts(data, detail) {
-    const labels = (data || []).map(d => {
+    const rows = data || [];
+    const labels = rows.map(d => {
         const ts = new Date(d.timestamp);
         return ts.toLocaleString('ko-KR', {month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'});
     });
 
-    const sPosData = detail.s_pos_series || [];
-    const sNegData = detail.s_neg_series || [];
-    const zScoreData = detail.z_series || [];
-    const threshold = detail.threshold_h || 5.0;
-    const alarmMask = detail.alarm_mask || [];
+    // series는 cache row에서 직접 뽑는다 (detector가 row마다 적재).
+    // 하위 호환: row에 없으면 detail의 series를 fallback으로 사용.
+    const hasRowSeries = rows.length > 0 && rows[0].s_pos !== undefined;
+    const sPosData = hasRowSeries ? rows.map(r => r.s_pos)
+                                  : (detail.s_pos_series || []);
+    const sNegData = hasRowSeries ? rows.map(r => r.s_neg)
+                                  : (detail.s_neg_series || []);
+    const zScoreData = hasRowSeries ? rows.map(r => (r.z !== undefined ? r.z : null))
+                                    : (detail.z_series || []);
+    const alarmMask = hasRowSeries ? rows.map(r => r.alarm || 0)
+                                   : (detail.alarm_mask || []);
+    // threshold는 row에 있으면 마지막 row 값(가장 최근 detect의 h)을 우선.
+    const threshold = (hasRowSeries && rows[rows.length - 1].threshold_h !== undefined)
+                    ? rows[rows.length - 1].threshold_h
+                    : (detail.threshold_h || 5.0);
+    const hSource = detail.h_source || 'manual';
     const baselineEnd = detail.baseline_end || 0;
 
     // CUSUM S+/S- chart
@@ -82,7 +112,7 @@ function renderExpertCharts(data, detail) {
             fill: false,
         },
         {
-            label: 'Threshold (h=' + threshold.toFixed(1) + ')',
+            label: 'Threshold h=' + threshold.toFixed(2) + ' (' + hSource + ')',
             data: Array(labels.length).fill(threshold),
             borderColor: '#f59e0b',
             borderDash: [5, 5],
@@ -196,6 +226,11 @@ function renderResults(events) {
         const mu = (d.mu0 !== undefined) ? d.mu0.toFixed(3) : '-';
         const sig = (d.sigma0 !== undefined) ? d.sigma0.toFixed(3) : '-';
         if (el('stat-baseline')) el('stat-baseline').textContent = mu + ' / ' + sig;
+
+        // h source info
+        const hVal = (d.threshold_h !== undefined) ? d.threshold_h.toFixed(2) : '-';
+        const hSrc = d.h_source || 'manual';
+        if (el('stat-h-info')) el('stat-h-info').textContent = hVal + ' (' + hSrc + ')';
     }
 
     const tbody = document.querySelector('#events-table tbody');
