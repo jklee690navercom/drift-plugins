@@ -67,6 +67,21 @@ class KsTestDetector(DriftPlugin):
         # ── 기준 구간과 테스트 구간 분리 ──
         ref_end = int(n * ref_ratio)
         if ref_end < window_size or (n - ref_end) < window_size:
+            # 데이터가 너무 적어 KS-test를 못 돌리지만, 차트가 멈추지 않도록
+            # raw value를 cache에 적재한다 (ks/p는 placeholder).
+            if self.cache is not None:
+                cache_rows = [
+                    {
+                        "timestamp": timestamps.iloc[i],
+                        "value": float(series[i]),
+                        "ks": 0.0,
+                        "raw_p": 1.0,
+                        "corrected_p": 1.0,
+                        "alarm": 0,
+                    }
+                    for i in range(n)
+                ]
+                self.cache.append_data(cache_rows)
             return []
 
         full_reference = clean_series[:ref_end]

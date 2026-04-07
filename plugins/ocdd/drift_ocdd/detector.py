@@ -42,6 +42,21 @@ class OcddDetector(DriftPlugin):
         # -- Baseline: IQR 계산 --
         baseline_end = int(n * baseline_ratio)
         if baseline_end < 10 or n <= baseline_end + window_size:
+            # 데이터가 너무 적어 OCDD를 못 돌리지만, 차트가 멈추지 않도록
+            # raw value를 cache에 적재한다 (outlier_ratio 등은 placeholder).
+            if self.cache is not None:
+                cache_rows = [
+                    {
+                        "timestamp": timestamps.iloc[i],
+                        "value": float(series[i]),
+                        "outlier_ratio": 0.0,
+                        "alarm": 0,
+                        "is_outlier": 0,
+                        "rho": 0.0,
+                    }
+                    for i in range(n)
+                ]
+                self.cache.append_data(cache_rows)
             return []
 
         baseline = series[:baseline_end]

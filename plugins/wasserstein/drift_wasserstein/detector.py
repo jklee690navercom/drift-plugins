@@ -50,6 +50,21 @@ class WassersteinDetector(DriftPlugin):
         # ── 기준 구간과 테스트 구간 분리 ──
         ref_end = int(n * ref_ratio)
         if ref_end < window_size or (n - ref_end) < window_size:
+            # 데이터가 너무 적어 Wasserstein을 못 돌리지만, 차트가 멈추지
+            # 않도록 raw value를 cache에 적재한다 (distance 등은 placeholder).
+            if self.cache is not None:
+                cache_rows = [
+                    {
+                        "timestamp": timestamps.iloc[i],
+                        "value": float(series[i]),
+                        "w_distance": 0.0,
+                        "w_smoothed": 0.0,
+                        "alarm": 0,
+                        "threshold": float(threshold),
+                    }
+                    for i in range(n)
+                ]
+                self.cache.append_data(cache_rows)
             return []
 
         reference = series[:ref_end].copy()

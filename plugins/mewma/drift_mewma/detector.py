@@ -54,6 +54,22 @@ class MewmaDetector(DriftPlugin):
         # ── Baseline estimation ──
         baseline_end = int(n * baseline_ratio)
         if baseline_end < max(10, p + 1) or (n - baseline_end) < 5:
+            # 데이터가 너무 적어 MEWMA를 못 돌리지만, 차트가 멈추지 않도록
+            # raw value를 cache에 적재한다 (d2/per-feature ewma는 placeholder).
+            if self.cache is not None:
+                cache_rows = []
+                for i in range(n):
+                    row = {
+                        "timestamp": timestamps.iloc[i],
+                        "value": 0.0,  # D² placeholder
+                        "d2": 0.0,
+                        "alarm": 0,
+                        "ucl": 0.0,
+                    }
+                    for col in feature_cols:
+                        row[f"ewma_{col}"] = float(X[i, feature_cols.index(col)])
+                    cache_rows.append(row)
+                self.cache.append_data(cache_rows)
             return []
 
         baseline = X[:baseline_end]

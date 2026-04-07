@@ -47,6 +47,20 @@ class ShapDetector(DriftPlugin):
         threshold = float(params["threshold"])
 
         if n < window_size * 2:
+            # 데이터가 너무 적어 SHAP을 못 돌리지만, 차트가 멈추지 않도록
+            # raw value를 cache에 적재한다 (profile_distance 등은 placeholder).
+            if self.cache is not None:
+                cache_rows = [
+                    {
+                        "timestamp": timestamps.iloc[i],
+                        "value": float(series[i]),
+                        "profile_distance": 0.0,
+                        "alarm": 0,
+                        "threshold": float(threshold),
+                    }
+                    for i in range(n)
+                ]
+                self.cache.append_data(cache_rows)
             return []
 
         # ── 각 윈도우의 통계 프로파일 계산 ──
@@ -64,6 +78,20 @@ class ShapDetector(DriftPlugin):
         # ── 기준 구간의 평균 프로파일과 표준편차 ──
         baseline_end = int(num_windows * baseline_ratio)
         if baseline_end < 2:
+            # baseline 윈도우가 부족해 비교 불가지만, 차트가 멈추지 않도록
+            # raw value를 cache에 적재한다.
+            if self.cache is not None:
+                cache_rows = [
+                    {
+                        "timestamp": timestamps.iloc[i],
+                        "value": float(series[i]),
+                        "profile_distance": 0.0,
+                        "alarm": 0,
+                        "threshold": float(threshold),
+                    }
+                    for i in range(n)
+                ]
+                self.cache.append_data(cache_rows)
             return []
 
         baseline_profiles = profiles[:baseline_end]

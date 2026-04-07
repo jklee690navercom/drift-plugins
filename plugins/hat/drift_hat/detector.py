@@ -1,6 +1,7 @@
-"""HAT drift detector — DriftPlugin 기반 운영 환경용."""
+"""HAT drift detector — ADWIN 기반 적응형 윈도우 drift 탐지기 v2.0."""
 
 from datetime import timedelta
+import math
 
 import numpy as np
 import pandas as pd
@@ -10,19 +11,21 @@ from framework.events.schema import DriftEvent
 
 
 class HatDetector(DriftPlugin):
-    """Hoeffding Adaptive Tree 기반 ADWIN-like drift 탐지기.
+    """ADWIN(ADaptive WINdowing) 기반 drift 탐지기.
 
-    데이터를 순차적으로 처리하면서 두 윈도우(W0, W1)를 유지하고,
-    두 윈도우 평균의 차이가 Hoeffding bound를 초과하면 drift로 판단.
-    Score = |mean_diff| / hoeffding_bound.
+    값 스트림에 대해 적응형 윈도우를 유지하면서 분포 변화를 감지한다.
+    윈도우를 두 부분(W_old, W_recent)으로 분할하여 평균 차이가
+    통계적으로 유의미한지 검사한다.
+
+    threshold = sqrt(1/(2*m) * ln(4*|W|/delta))
+    여기서 m = 두 부분윈도우 크기의 조화평균.
     """
 
     DEFAULT_WINDOW_SIZE = timedelta(days=7)
     DEFAULT_SUBGROUP_SIZE = timedelta(minutes=5)
     DEFAULT_PARAMS = {
-        "min_window": 30,
-        "delta": 0.01,
-        "reference_ratio": 0.5,
+        "delta": 0.002,
+        "baseline_ratio": 0.3,
     }
 
     def detect(self, data, data_ids, stream, params,
@@ -35,71 +38,67 @@ class HatDetector(DriftPlugin):
         timestamps = data["timestamp"]
         n = len(series)
 
-        min_window = int(params["min_window"])
         delta = float(params["delta"])
-        ref_ratio = float(params["reference_ratio"])
+        baseline_ratio = float(params["baseline_ratio"])
 
-        ref_end = int(n * ref_ratio)
-        if ref_end < min_window or (n - ref_end) < min_window:
+        baseline_end = int(n * baseline_ratio)
+        if baseline_end < 5 or (n - baseline_end) < 5:
+            # 데이터가 너무 적어 ADWIN을 못 돌리지만, 차트가 멈추지 않도록
+            # raw value를 cache에 적재한다 (running_mean/window_size는 placeholder).
+            if self.cache is not None:
+                cache_rows = [
+                    {
+                        "timestamp": timestamps.iloc[i],
+                        "value": float(series[i]),
+                        "running_mean": float(series[i]),
+                        "window_size": 0,
+                    }
+                    for i in range(n)
+                ]
+                self.cache.append_data(cache_rows)
             return []
 
-        # ── 데이터 범위 (Hoeffding bound에 필요) ──
-        data_range = float(np.max(series) - np.min(series))
-        if data_range <= 0:
-            data_range = 1e-8
+        # -- ADWIN 기반 순차 처리 --
+        window = list(series[:baseline_end])
+        window_sum = float(sum(window))
 
-        # ── 슬라이딩 윈도우 비교 (ADWIN-like) ──
-        mean_diff_series = np.zeros(n)
-        bound_series = np.zeros(n)
-        score_series = np.zeros(n)
+        mean_series = np.zeros(n)
+        window_size_series = np.zeros(n, dtype=int)
         alarm_mask = np.zeros(n, dtype=int)
         alarm_indices = []
 
-        for i in range(ref_end + min_window, n):
-            # W0: reference window (고정 또는 adaptive)
-            w0_start = max(0, i - 2 * min_window)
-            w0_end = i - min_window
-            if w0_end <= w0_start:
-                continue
-            # W1: recent window
-            w1_start = i - min_window
-            w1_end = i
+        # baseline 구간의 running mean / window size 기록
+        for i in range(baseline_end):
+            mean_series[i] = float(window_sum / len(window))
+            window_size_series[i] = int(len(window))
 
-            w0 = series[w0_start:w0_end]
-            w1 = series[w1_start:w1_end]
+        for i in range(baseline_end, n):
+            # 새 값을 윈도우에 추가
+            val = float(series[i])
+            window.append(val)
+            window_sum += val
 
-            n0 = len(w0)
-            n1 = len(w1)
-            if n0 < 2 or n1 < 2:
-                continue
+            # ADWIN 분할 검사
+            drift_found, cut_point = self._adwin_check(window, delta)
 
-            mean0 = float(np.mean(w0))
-            mean1 = float(np.mean(w1))
-            mean_diff = abs(mean1 - mean0)
-
-            # Hoeffding bound: epsilon = R * sqrt(ln(2/delta) / (2*m))
-            # where m = harmonic mean of n0, n1
-            m = 2.0 * n0 * n1 / (n0 + n1)
-            epsilon = data_range * np.sqrt(np.log(2.0 / delta) / (2.0 * m))
-
-            mean_diff_series[i] = mean_diff
-            bound_series[i] = epsilon
-
-            if epsilon > 0:
-                score_series[i] = mean_diff / epsilon
-            else:
-                score_series[i] = 0.0
-
-            if mean_diff > epsilon:
+            if drift_found and cut_point is not None:
+                # 드리프트 감지: 오래된 부분 제거하여 윈도우 축소
+                window = window[cut_point:]
+                window_sum = float(sum(window))
                 alarm_mask[i] = 1
                 alarm_indices.append(i)
 
-        # ── Cache에 데이터 기록 ──
+            mean_series[i] = float(window_sum / len(window)) if len(window) > 0 else 0.0
+            window_size_series[i] = int(len(window))
+
+        # -- Cache 기록 (running mean, window size 포함) --
         cache_rows = []
-        for i in range(len(series)):
+        for i in range(n):
             cache_rows.append({
                 "timestamp": timestamps.iloc[i],
                 "value": float(series[i]),
+                "running_mean": float(mean_series[i]),
+                "window_size": int(window_size_series[i]),
             })
 
         if self.cache is not None:
@@ -108,15 +107,34 @@ class HatDetector(DriftPlugin):
         if not alarm_indices:
             return []
 
-        # ── DriftEvent 생성 ──
+        # -- DriftEvent 생성 --
         events = []
         for group_start, group_end in self._group_consecutive(alarm_indices):
             group_ids = data_ids[group_start:group_end + 1]
+            peak_idx = group_start
 
-            peak_idx = group_start + int(np.argmax(score_series[group_start:group_end + 1]))
-            peak_diff = float(mean_diff_series[peak_idx])
-            peak_bound = float(bound_series[peak_idx])
-            score = float(score_series[peak_idx])
+            # peak = 가장 큰 윈도우 크기 변화가 일어난 지점
+            max_drop = 0
+            for idx in range(group_start, group_end + 1):
+                if alarm_mask[idx] == 1:
+                    prev_ws = int(window_size_series[idx - 1]) if idx > 0 else 0
+                    curr_ws = int(window_size_series[idx])
+                    drop = prev_ws - curr_ws
+                    if drop > max_drop:
+                        max_drop = drop
+                        peak_idx = idx
+
+            # Score: 윈도우 축소 비율
+            prev_ws = int(window_size_series[peak_idx - 1]) if peak_idx > 0 else int(window_size_series[peak_idx])
+            curr_ws = int(window_size_series[peak_idx])
+            if prev_ws > 0:
+                score = float(prev_ws - curr_ws) / float(prev_ws)
+            else:
+                score = 0.0
+            score = max(score, 0.01)  # 최소 score
+
+            # 심각도에 맞게 score 조정 (0~1 -> severity mapping)
+            adj_score = score * 3.0  # 스케일업
 
             events.append(DriftEvent(
                 stream=stream,
@@ -124,24 +142,25 @@ class HatDetector(DriftPlugin):
                 detected_at=timestamps.iloc[peak_idx],
                 data_from=timestamps.iloc[group_start],
                 data_to=timestamps.iloc[group_end],
-                severity=self._score_to_severity(score),
+                severity=self._score_to_severity(adj_score),
                 detected=True,
-                score=round(score, 4),
-                message=f"HAT alarm: |mean_diff|={peak_diff:.4f}, bound={peak_bound:.4f} (delta={delta})",
+                score=round(float(adj_score), 4),
+                message=(
+                    f"ADWIN drift: window shrunk {prev_ws}->{curr_ws} "
+                    f"(delta={delta})"
+                ),
                 data_ids=group_ids,
-                data_count=len(group_ids),
+                data_count=int(len(group_ids)),
                 detail={
-                    "algorithm": "hat",
-                    "peak_mean_diff": round(peak_diff, 6),
-                    "peak_bound": round(peak_bound, 6),
-                    "delta": delta,
-                    "min_window": min_window,
-                    "data_range": round(data_range, 4),
-                    "alarm_count": group_end - group_start + 1,
-                    "mean_diff_series": mean_diff_series.tolist(),
-                    "bound_series": bound_series.tolist(),
-                    "score_series": score_series.tolist(),
-                    "alarm_mask": alarm_mask.tolist(),
+                    "algorithm": "hat_adwin",
+                    "delta": float(delta),
+                    "baseline_ratio": float(baseline_ratio),
+                    "window_before": int(prev_ws),
+                    "window_after": int(curr_ws),
+                    "alarm_count": int(group_end - group_start + 1),
+                    "mean_series": [float(x) for x in mean_series.tolist()],
+                    "window_size_series": [int(x) for x in window_size_series.tolist()],
+                    "alarm_mask": [int(x) for x in alarm_mask.tolist()],
                 },
             ))
 
@@ -150,6 +169,55 @@ class HatDetector(DriftPlugin):
             self.cache.append_events(events)
 
         return events
+
+    @staticmethod
+    def _adwin_check(window, delta):
+        """ADWIN 분할 검사.
+
+        윈도우 W를 가능한 모든 지점에서 (W_old, W_recent)로 분할하여
+        두 부분의 평균 차이가 임계값을 초과하는지 검사한다.
+
+        threshold = sqrt(1/(2*m) * ln(4*|W|/delta))
+        m = 조화평균(|W_old|, |W_recent|)
+
+        Returns:
+            (drift_found, cut_point): drift 감지 여부와 분할 지점
+        """
+        n = len(window)
+        if n < 6:
+            return False, None
+
+        total_sum = sum(window)
+        best_cut = None
+        best_diff = 0.0
+
+        ln_val = math.log(4.0 * n / delta)
+
+        # prefix_sum = sum(window[0:i]), 점진적으로 계산
+        prefix_sum = sum(window[:3])
+
+        # 최소 3개씩은 양쪽에 있어야 의미 있는 분할
+        # i = 분할 지점: W_old = window[0:i], W_recent = window[i:n]
+        for i in range(3, n - 2):
+            if i > 3:
+                prefix_sum += window[i - 1]
+            n_old = i
+            n_recent = n - i
+            mean_old = prefix_sum / n_old
+            mean_recent = (total_sum - prefix_sum) / n_recent
+            diff = abs(mean_old - mean_recent)
+
+            # 조화평균
+            m = 2.0 * n_old * n_recent / (n_old + n_recent)
+            threshold = math.sqrt(ln_val / (2.0 * m))
+
+            if diff >= threshold and diff > best_diff:
+                best_diff = diff
+                best_cut = i
+
+        if best_cut is not None:
+            return True, best_cut
+        return False, None
 
     def get_chart_config(self):
         return {
