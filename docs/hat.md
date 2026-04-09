@@ -1,7 +1,10 @@
 # HAT (Hoeffding Adaptive Tree / ADWIN-like)
 
 ## 개요
-Hoeffding bound를 이용하여 두 슬라이딩 윈도우(W0, W1)의 평균 차이가 통계적으로 유의한지를 판단하는 ADWIN 유사 drift 탐지 알고리즘이다.
+
+Hoeffding bound를 이용하여 두 슬라이딩 윈도우(W0, W1)의 평균 차이가 통계적으로 유의한지를 판단하는 ADWIN 유사 drift 탐지 알고리즘이다. **분포 가정 없이 이론적 보장**을 제공하며, 온라인 학습 환경에서 실시간으로 concept drift를 감지하고 적응형 재학습을 트리거하는 데 적합하다.
+
+---
 
 ## 알고리즘 원리
 
@@ -34,17 +37,81 @@ $$|\bar{x}_{W1} - \bar{x}_{W0}| > \epsilon$$
 
 $$\text{score} = \frac{|\bar{x}_{W1} - \bar{x}_{W0}|}{\epsilon}$$
 
-### 핵심 아이디어
+### Hoeffding Adaptive Tree와의 관계
 
-최근 데이터(W1)와 이전 데이터(W0)의 평균을 비교하되, Hoeffding bound라는 이론적 경계를 사용하여 분포 가정 없이 통계적 유의성을 판단한다. Hoeffding bound는 데이터의 분포를 가정하지 않고, 데이터의 범위(range)만 알면 적용할 수 있다는 장점이 있다.
+Hoeffding Adaptive Tree(HAT)는 Bifet & Gavalda(2009)가 제안한 적응형 결정 트리로, ADWIN drift 탐지기를 내장하여 concept drift에 자동 대응한다:
+
+1. **Hoeffding Tree**: 데이터 스트림에서 점진적으로 학습하는 결정 트리. Hoeffding bound로 노드 분할 결정.
+2. **ADWIN 탐지기**: 각 노드에 부착되어 해당 서브트리의 정확도 변화를 모니터링.
+3. **적응형 재학습**: ADWIN이 drift를 감지하면 해당 서브트리를 대체 트리로 교체.
+
+```
+[Root Node]
+   ├── [Node A] ← ADWIN 모니터 (정확도 추적)
+   │      ├── [Leaf 1]
+   │      └── [Leaf 2]
+   └── [Node B] ← ADWIN 모니터
+          ├── [Leaf 3]  ← drift 감지! → 대체 트리로 교체
+          └── [Leaf 4]
+```
+
+### 온라인 학습과 적응형 재학습
+
+HAT의 온라인 학습 사이클:
+
+1. **관측**: 새 데이터 포인트 도착
+2. **예측**: 현재 모델로 예측
+3. **평가**: 실제 값과 비교하여 에러 계산
+4. **drift 검사**: ADWIN으로 에러율 변화 모니터링
+5. **갱신/재학습**: drift 감지 시 서브트리 교체, 미감지 시 점진적 갱신
+
+---
 
 ## 파라미터
 
-| 파라미터 | 기본값 | 설명 |
-|---|---|---|
-| `min_window` | 30 | 각 윈도우(W0, W1)의 최소 크기 |
-| `delta` | 0.01 | Hoeffding bound의 오류 확률. 작을수록 보수적으로 판단한다. |
-| `reference_ratio` | 0.5 | 기준 구간의 비율 (슬라이딩 시작 위치 결정) |
+| 파라미터 | 기본값 | 설명 | 효과 |
+|---|---|---|---|
+| `min_window` | 30 | 각 윈도우(W0, W1)의 최소 크기 | 크면 안정적, 작으면 빠른 반응 |
+| `delta` | 0.01 | Hoeffding bound의 오류 확률 | 작을수록 보수적. 0.001: 매우 보수적, 0.05: 민감 |
+| `reference_ratio` | 0.5 | 기준 구간 비율 | 슬라이딩 시작 위치 결정 |
+
+---
+
+## 데이터 시나리오
+
+### 3단계 환경 변화
+
+| 구간 | 시점 | 패턴 | HAT 반응 |
+|------|------|------|----------|
+| 안정 환경 | 0~199 | 에러율 ~ 5% ($\mu=0.05$) | $\|\Delta\bar{x}\| < \epsilon$, 정상 |
+| 환경 변화 1 | 200~349 | 에러율 ~ 15% (갑작스런 증가) | $\|\Delta\bar{x}\| > \epsilon$, alarm → 재학습 트리거 |
+| 환경 변화 2 | 350~499 | 에러율 ~ 25% (추가 악화) | 재학습 후에도 $\|\Delta\bar{x}\| > \epsilon$ → 추가 적응 필요 |
+
+이 시나리오는 HAT의 **적응형 재학습** 능력을 검증한다. 환경이 바뀔 때마다 ADWIN이 drift를 감지하고, 모델이 새 환경에 적응하는 과정을 보여준다.
+
+---
+
+## 다른 알고리즘과의 비교
+
+| 특성 | HAT (ADWIN) | CUSUM | EWMA | KS Test |
+|------|------------|-------|------|---------|
+| 분포 가정 | **없음** (분포 무관) | 정규 가정 | 정규 가정 | 비모수 |
+| 이론적 보장 | **Hoeffding bound** | 순차 검정 이론 | 근사적 | 점근적 |
+| 온라인 학습 연동 | **네이티브** | 별도 구현 필요 | 별도 구현 필요 | 배치 위주 |
+| 점진적 변화 | 보통 | **강함** | 강함 | 보통 |
+| 급격한 변화 | **강함** | 강함 | 보통 | 강함 |
+| 보수성 | **매우 보수적** | 조절 가능 | 조절 가능 | 조절 가능 |
+| 이상치 민감도 | **높음** (R에 영향) | 중간 | 낮음 | 중간 |
+
+### 언제 HAT를 선택하나?
+
+- **온라인/스트리밍 환경에서 실시간 drift 감지가 필요하다** → HAT
+- **분포 가정 없이 이론적 보장이 필요하다** → HAT
+- **모델 재학습을 자동으로 트리거하고 싶다** → HAT
+- **노이즈가 많고 평활화가 필요하다** → EWMA
+- **미세한 변화를 빠르게 잡고 싶다** → CUSUM
+
+---
 
 ## 탐지 로직
 
@@ -62,6 +129,8 @@ $$\text{score} = \frac{|\bar{x}_{W1} - \bar{x}_{W0}|}{\epsilon}$$
 5. **이벤트 생성**: 각 그룹에서 score가 가장 큰 시점을 peak로 선택한다.
 6. **심각도 판정**: score >= 2.0이면 critical, >= 1.0이면 warning, 그 외 normal.
 
+---
+
 ## 차트 시각화
 
 - **기본 차트**: Value 시계열 + drift 알람 마커
@@ -71,22 +140,11 @@ $$\text{score} = \frac{|\bar{x}_{W1} - \bar{x}_{W0}|}{\epsilon}$$
     - `Error Rate` (빨간색 선): score 추이 ($|\text{mean\_diff}| / \epsilon$)
     - `Threshold` (주황색 수평선): 1.0 (score = 1.0 이상이면 drift)
 
-## 적합한 상황
-
-### 효과적인 경우
-- 데이터 분포에 대한 가정을 최소화하고 싶을 때 (분포 무관 bound)
-- 온라인/스트리밍 환경에서 실시간으로 drift를 감지할 때
-- 이론적 보장이 있는 탐지기가 필요할 때 (Hoeffding 부등식의 이론적 근거)
-- 점진적인(gradual) 평균 변화와 급격한(abrupt) 변화 모두 감지하고 싶을 때
-
-### 한계점
-- Hoeffding bound는 매우 보수적(conservative)이어서, 실제로는 더 작은 변화도 유의할 수 있지만 놓칠 수 있다
-- 데이터 범위($R$)에 이상치(outlier)가 있으면 bound가 과도하게 넓어진다
-- 분산만 변하고 평균이 유지되는 경우에는 효과적이지 않다
-- 윈도우 크기(`min_window`)에 의존하며, 크기가 너무 작으면 부정확하고 너무 크면 지연이 발생한다
+---
 
 ## 참고 문헌
 
 - Hoeffding, W. (1963). "Probability Inequalities for Sums of Bounded Random Variables." *Journal of the American Statistical Association*, 58(301), 13-30.
 - Bifet, A., & Gavalda, R. (2007). "Learning from Time-Changing Data with Adaptive Windowing." *SIAM International Conference on Data Mining*.
+- Bifet, A., & Gavalda, R. (2009). "Adaptive Learning from Evolving Data Streams." *IDA*.
 - Domingos, P., & Hulten, G. (2000). "Mining High-Speed Data Streams." *KDD*.

@@ -4,11 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drift-hotelling"
-version = "1.0.0"
-description = "Hotelling T2 다변량 제어 차트 기반 drift 탐지"
+version = "2.0.0"
+description = "Hotelling T2 다변량 제어 차트 기반 drift 탐지 (shrinkage 정규화, chi2 임계값)"
 requires-python = ">=3.11"
 dependencies = [
     "drift-framework>=0.1,<1.0",
+    "scipy>=1.11",
 ]
 
 [project.entry-points."drift_framework.plugins"]

@@ -5,8 +5,9 @@ from pathlib import Path
 from flask import Blueprint, render_template
 
 from .detector import PChartDetector
+from .web.routes import register_routes
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 _PKG_DIR = Path(__file__).resolve().parent
 
@@ -14,14 +15,18 @@ blueprint = Blueprint(
     "p_chart",
     __name__,
     template_folder=str(_PKG_DIR / "web" / "templates"),
+    static_folder=str(_PKG_DIR / "web" / "static"),
+    static_url_path="/static",
     url_prefix="/drift/p_chart",
 )
+
+register_routes(blueprint)
 
 
 @blueprint.route("/")
 def page():
     return render_template(
-        "plugin_page.html",
+        "p_chart/page.html",
         plugin_name="P Chart",
         plugin_key="p_chart",
     )
@@ -46,5 +51,6 @@ def register(app):
         params_schema={
             "sample_size": {"type": "int", "default": 50, "label": "Sample Size (n)", "description": "각 그룹의 검사 수."},
             "reference_ratio": {"type": "float", "default": 0.5, "label": "Reference Ratio", "description": "기준 구간 비율 (0~1)."},
+            "baseline_ratio": {"type": "float", "default": 0.5, "label": "Baseline Ratio", "description": "기준 구간 비율 (UCL/CL/LCL 계산용)."},
         },
     )

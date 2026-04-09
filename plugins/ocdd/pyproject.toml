@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drift-ocdd"
-version = "1.0.0"
+version = "2.0.0"
 description = "One-Class Drift Detector plugin for drift-framework"
 requires-python = ">=3.11"
 dependencies = [

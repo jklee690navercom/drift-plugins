@@ -69,13 +69,18 @@ class HatDetector(DriftPlugin):
             snapshot, stream, delta, baseline_end,
         )
 
-        # 누적 재실행이므로 이전 cycle에서 이미 발견된 이벤트는 제외한다.
+        # 누적 재실행 패턴: cache의 drift_events를 매 cycle 통째로 교체한다.
+        # ADWIN의 그룹화는 데이터 길이에 의존하지 않아 dedup도 가능하지만,
+        # 다른 detector와 일관된 패턴을 위해 replace_events=True를 사용한다.
+        # 호출자(framework) 입장에서 "현재 새로 발견된 이벤트" 만 알면 충분하므로
+        # 반환값은 dedup 결과를 사용한다.
         new_events = self._dedupe_events(all_events, previous_events)
 
         # ── 3단계: 커밋 (락 안, 짧음) ──
         self.cache.commit_analysis(
             layer_rows=layer_rows,
-            events=new_events,
+            events=all_events,
+            replace_events=True,
         )
         return new_events
 

@@ -4,12 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "drift-hat"
-version = "1.0.0"
-description = "Hoeffding Adaptive Tree inspired drift detection plugin for drift-framework"
+version = "2.0.0"
+description = "ADWIN-based adaptive windowing drift detection plugin for drift-framework"
 requires-python = ">=3.11"
 dependencies = [
     "drift-framework>=0.1,<1.0",
-    "matplotlib>=3.8",
 ]
 
 [project.entry-points."drift_framework.plugins"]

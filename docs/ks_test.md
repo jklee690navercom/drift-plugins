@@ -66,20 +66,20 @@ reference 구간        슬라이딩 윈도우
 
 ### 기본 파라미터
 
-| 파라미터 | 기본값 | 설명 |
-|---|---|---|
-| `window_size` | 100 | 테스트 슬라이딩 윈도우의 크기 (데이터 포인트 수) |
-| `alpha` | 0.05 | 유의수준. 작을수록 보수적으로 판단한다. |
-| `reference_ratio` | 0.5 | 전체 데이터에서 기준 구간이 차지하는 비율 |
+| 파라미터 | 기본값 | 설명 | 효과 |
+|---|---|---|---|
+| `window_size` | 100 | 테스트 슬라이딩 윈도우의 크기 | 크면 안정적이나 지연 증가 |
+| `alpha` | 0.05 | 유의수준 | 작을수록 보수적 판단 |
+| `reference_ratio` | 0.5 | 기준 구간 비율 | 기준 분포 추정에 사용 |
 
 ### 확장 파라미터
 
-| 파라미터 | 기본값 | 설명 |
-|---|---|---|
-| `correction` | `"bh"` | 다중 검정 보정 방법. `"none"`, `"bonferroni"`, `"bh"` |
-| `update_reference` | `true` | drift 탐지 후 기준 윈도우를 현재 윈도우로 갱신 |
-| `remove_outliers` | `false` | IQR 기반 이상치 제거 후 검정 |
-| `method` | `"asymptotic"` | 검정 방법. `"asymptotic"`, `"exact"`, `"bootstrap"` |
+| 파라미터 | 기본값 | 설명 | 효과 |
+|---|---|---|---|
+| `correction` | `"bh"` | 다중 검정 보정 방법 | `"none"`, `"bonferroni"`, `"bh"` |
+| `update_reference` | `true` | drift 후 기준 윈도우 갱신 | 연속 alarm 방지 |
+| `remove_outliers` | `false` | IQR 기반 이상치 제거 | ECDF 왜곡 방지 |
+| `method` | `"asymptotic"` | 검정 방법 | `"asymptotic"`, `"exact"`, `"bootstrap"` |
 
 ### 파라미터 상세 설명
 
@@ -134,6 +134,34 @@ clean_data = data[mask]
 | `asymptotic` | 점근적 분포 사용 (기본) | $n \ge 100$ |
 | `exact` | 정확한 분포 계산 | $n < 50$ (작은 샘플) |
 | `bootstrap` | 재표본 추출 (1000회) | 신뢰구간 추정 필요 시 |
+
+---
+
+## 데이터 시나리오
+
+### ds_ks_distribution — 분포 변화 3단계
+
+| 구간 | 시점 | 패턴 | KS Test 반응 |
+|------|------|------|-------------|
+| 정상 | 0~199 | $N(0, 1)$ 정규분포 | $D \approx 0$, p-value 높음 (정상) |
+| 분산 증가 | 200~349 | $N(0, 4)$ 분산 4배 | $D$ 상승, p-value 급락 → drift |
+| 평균 이동 | 350~449 | $N(2, 1)$ 평균 2 이동 | $D$ 대폭 상승, p-value $\approx 0$ → critical |
+| 복귀 | 450~599 | $N(0, 1)$ 원래 분포 복귀 | `update_reference=false`: 여전히 alarm, `true`: 정상 복귀 |
+
+이 시나리오는 KS Test의 **범용성**을 보여준다. 분산만 변하는 Phase 2에서도 탐지하며(CUSUM/EWMA는 불가), 평균 이동도 감지하고, 복귀 시 `update_reference` 옵션의 효과를 확인할 수 있다.
+
+### 기존 테스트 DataSource 매핑
+
+| DataSource | KS Test로 검증하는 것 |
+|---|---|
+| `ds_sudden_drift` | 기본 탐지 능력. 급격한 평균+분산 변화 감지 |
+| `ds_gradual_drift` | 점진적 변화에서 윈도우 크기의 영향 |
+| `ds_incremental_drift` | 기준 갱신(`update_reference`) 효과 |
+| `ds_multiple_drift` | 다중 검정 보정(`correction`) 효과. 복귀 구간 오탐 방지 |
+| `ds_variance_change` | 평균은 동일, 분산만 변할 때 KS의 장점 (CUSUM은 못 잡음) |
+| `ds_outlier_heavy` | 이상치 전처리(`remove_outliers`) 효과 |
+| `ds_seasonal` | 계절성과 drift 구분. 윈도우 크기 + 기준 구간 설정 |
+| `ds_stable` | False positive 측정. 보정 방법별 비교 기준선 |
 
 ---
 
@@ -268,6 +296,29 @@ def multivariate_ks(X_ref, X_test):
 
 ---
 
+## 다른 플러그인과의 비교
+
+| 특성 | KS Test | CUSUM | Hotelling $T^2$ | Wasserstein |
+|------|---------|-------|-----------------|-------------|
+| 감지 대상 | **모든 분포 변화** | 평균 변화 | 다변량 평균 변화 | 분포 거리 |
+| 분포 가정 | 비모수 | 정규 가정 | 다변량 정규 | 비모수 |
+| 분산 변화 감지 | **O** | X | 부분적 | **O** |
+| 형태 변화 감지 | **O** | X | X | **O** |
+| 점진적 변화 | 보통 | **강함** | 보통 | 보통 |
+| 다변량 지원 | 변수별 개별 | X | **네이티브** | 1D만 |
+| 출력 | D-stat, p-value | 누적합 | $T^2$ 통계량 | 거리 |
+
+### 권장 사용 상황
+
+```
+"분포가 어떻게 바뀌든 감지하고 싶다"         → KS Test
+"평균이 서서히 빠지는 것을 빨리 잡고 싶다"    → CUSUM
+"여러 변수의 동시 변화를 보고 싶다"           → Hotelling
+"변화의 크기를 수치적으로 비교하고 싶다"       → Wasserstein
+```
+
+---
+
 ## 차트 UI 설계
 
 ### 차트 구성 (4개 패널)
@@ -301,7 +352,7 @@ def multivariate_ks(X_ref, X_test):
 - 임계선 위 = drift
 ```
 
-#### 4. ECDF Comparison Chart — 분포 비교 (신규)
+#### 4. ECDF Comparison Chart — 분포 비교
 
 ```
 Reference ECDF(파란 계단선) vs Test ECDF(주황 계단선)
@@ -309,83 +360,6 @@ Reference ECDF(파란 계단선) vs Test ECDF(주황 계단선)
 - Y축: 누적 확률 (0~1)
 - 빨간 수직 점선: D-statistic (최대 거리 지점)
 - D 값과 p-value 텍스트 표시
-```
-
-이 차트는 **현재 선택된 시점** (또는 가장 최근 drift 시점)의 reference와 test 윈도우의 CDF를 보여준다. Value Chart에서 특정 시점을 클릭하면 해당 시점의 ECDF가 업데이트된다.
-
-### 프리셋 UI
-
-```
-┌─ Analysis Mode ─────────────────────────────────────┐
-│  [Quick Scan] [Standard] [High Precision]           │
-│  [Streaming]  [Small Sample]  [Custom ▼]            │
-└─────────────────────────────────────────────────────┘
-```
-
-선택 시 아래 파라미터 패널의 값이 자동으로 설정된다. Custom을 선택하면 상세 설정 패널이 활성화된다.
-
-### 상세 설정 패널 (Custom 모드)
-
-```
-┌─ Basic ─────────────────────────────────────────────┐
-│  Window Size: [100]    Alpha: [0.05]                │
-│  Reference Ratio: [0.5]                             │
-├─ Correction ────────────────────────────────────────┤
-│  (○) None  (●) Benjamini-Hochberg  (○) Bonferroni  │
-├─ Reference Strategy ────────────────────────────────┤
-│  [✓] Update reference after drift                   │
-├─ Preprocessing ─────────────────────────────────────┤
-│  [✓] Remove outliers (IQR)                          │
-├─ Method ────────────────────────────────────────────┤
-│  (●) Asymptotic  (○) Exact  (○) Bootstrap           │
-└─────────────────────────────────────────────────────┘
-```
-
-### 결과 요약 카드
-
-```
-┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
-│  Events  │  │ Max D    │  │ Min p    │  │ Type     │
-│    3     │  │  0.4521  │  │ 2.1e-15  │  │ sudden   │
-└──────────┘  └──────────┘  └──────────┘  └──────────┘
-```
-
-### 이벤트 테이블
-
-| Time | D-stat | p-value | Corrected p | Severity | Type | Message |
-|------|--------|---------|-------------|----------|------|---------|
-| 2026-06-15 | 0.4521 | 2.1e-15 | 6.3e-13 | critical | sudden | D=0.4521, p=2.1e-15 |
-| 2027-01-10 | 0.3102 | 1.5e-08 | 4.5e-06 | warning | sudden | D=0.3102, p=1.5e-08 |
-
-기존 테이블에 Corrected p-value, drift Type 컬럼이 추가된다.
-
-### 인터랙션
-
-- **프리셋 버튼 클릭** → 파라미터 자동 설정 + 분석 실행
-- **차트 시점 클릭** → ECDF Comparison Chart가 해당 시점의 reference/test CDF로 업데이트
-- **파라미터 변경 후 Run** → 재분석 + 차트 갱신
-
----
-
-## 다른 플러그인과의 비교
-
-| 특성 | KS Test | CUSUM | Hotelling $T^2$ | Wasserstein |
-|------|---------|-------|-----------------|-------------|
-| 감지 대상 | **모든 분포 변화** | 평균 변화 | 다변량 평균 변화 | 분포 거리 |
-| 분포 가정 | 비모수 | 정규 가정 | 다변량 정규 | 비모수 |
-| 분산 변화 감지 | **O** | X | 부분적 | **O** |
-| 형태 변화 감지 | **O** | X | X | **O** |
-| 점진적 변화 | 보통 | **강함** | 보통 | 보통 |
-| 다변량 지원 | 변수별 개별 | X | **네이티브** | 1D만 |
-| 출력 | D-stat, p-value | 누적합 | $T^2$ 통계량 | 거리 |
-
-### 권장 사용 상황
-
-```
-"분포가 어떻게 바뀌든 감지하고 싶다"         → KS Test
-"평균이 서서히 빠지는 것을 빨리 잡고 싶다"    → CUSUM
-"여러 변수의 동시 변화를 보고 싶다"           → Hotelling
-"변화의 크기를 수치적으로 비교하고 싶다"       → Wasserstein
 ```
 
 ---
@@ -410,11 +384,6 @@ Reference ECDF(파란 계단선) vs Test ECDF(주황 계단선)
 | 100~200 | 보통 | 보통 | **일반적 사용** |
 | 500+ | 느림 | 낮음 | 안정성 중시 시 |
 
-경험적 공식:
-```
-window_size = max(100, expected_drift_period / 5)
-```
-
 ### 결과 해석 체크리스트
 
 1. **p-value 확인**: $< \alpha$이면 유의함
@@ -422,16 +391,6 @@ window_size = max(100, expected_drift_period / 5)
 3. **샘플 크기 고려**: 작으면 검정력 부족
 4. **다중 검정 고려**: 보정 방법 적용 여부 확인
 5. **ECDF 시각화**: 두 분포의 패턴 차이를 눈으로 확인
-
-### 흔한 실수와 해결
-
-| 실수 | 결과 | 해결책 |
-|------|------|--------|
-| 다중 검정 무시 | False positive 증가 | BH 또는 Bonferroni 보정 |
-| 작은 윈도우 사용 | 검정력 부족 | $n \ge 100$ 확보 |
-| 이상치 무시 | 왜곡된 결과 | IQR 전처리로 제거 |
-| 기준 윈도우 고정 | drift 후 모든 alarm | reference 자동 갱신 |
-| 단일 지표만 사용 | 불완전한 해석 | p-value + D + ECDF 시각화 |
 
 ---
 
@@ -451,29 +410,7 @@ window_size = max(100, expected_drift_period / 5)
 - 기준 구간(reference)이 이미 drift 상태이면 잘못된 결과를 낸다 (`update_reference`로 완화)
 - 매 윈도우마다 검정을 수행하므로 다중비교 문제가 발생할 수 있다 (`correction`으로 해결)
 - 슬라이딩 윈도우 방식으로 인해 변화 시점 감지에 `window_size/2`만큼의 지연이 있다
-- 이산형 데이터에는 주의가 필요하다 (연속형 분포를 가정)
 - 매우 작은 샘플 ($n < 30$)에서는 검정력이 매우 낮다
-
-### 부적합한 경우
-
-- 평균만 비교하고 싶다면 → t-test 또는 CUSUM
-- 범주형 데이터 → Chi-square test
-- 매우 작은 샘플 ($n < 30$) → bootstrap 방법 또는 exact test 고려
-
----
-
-## 테스트용 DataSource 매핑
-
-| DataSource | KS Test로 검증하는 것 |
-|---|---|
-| `ds_sudden_drift` | 기본 탐지 능력. 급격한 평균+분산 변화 감지 |
-| `ds_gradual_drift` | 점진적 변화에서 윈도우 크기의 영향 |
-| `ds_incremental_drift` | 기준 갱신(`update_reference`) 효과 |
-| `ds_multiple_drift` | 다중 검정 보정(`correction`) 효과. 복귀 구간 오탐 방지 |
-| `ds_variance_change` | 평균은 동일, 분산만 변할 때 KS의 장점 (CUSUM은 못 잡음) |
-| `ds_outlier_heavy` | 이상치 전처리(`remove_outliers`) 효과 |
-| `ds_seasonal` | 계절성과 drift 구분. 윈도우 크기 + 기준 구간 설정 |
-| `ds_stable` | False positive 측정. 보정 방법별 비교 기준선 |
 
 ---
 

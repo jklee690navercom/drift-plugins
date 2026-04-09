@@ -1,79 +1,123 @@
-{% extends "base.html" %}
+{% extends "plugin_page.html" %}
 
-{% block title %}Hotelling T2 Drift Detection{% endblock %}
-
-{% block head %}
-<link rel="stylesheet" href="{{ url_for('hotelling.static', filename='style.css') }}">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-{% endblock %}
-
-{% block content %}
-<div class="plugin-page">
-
-    <section class="plugin-header">
-        <h1>Hotelling T2</h1>
-        <p>Hotelling T2 다변량 제어 차트 기반 drift 탐지</p>
-        <div class="info-buttons">
-            <button class="btn-info" onclick="togglePanel('algorithm-info')">알고리즘 설명</button>
-            <button class="btn-info" onclick="togglePanel('example-info')">예제 데이터 설명</button>
-        </div>
-    </section>
-
-    <section class="info-panel" id="algorithm-info" style="display:none;">
-        <div class="info-panel__header">
-            <h2>Hotelling T2 알고리즘</h2>
-            <button class="btn-close" onclick="togglePanel('algorithm-info')">닫기</button>
-        </div>
-        <div class="info-panel__body">
-            <p>여기에 알고리즘 설명을 작성하세요.</p>
-        </div>
-    </section>
-
-    <section class="info-panel" id="example-info" style="display:none;">
-        <div class="info-panel__header">
-            <h2>예제 데이터</h2>
-            <button class="btn-close" onclick="togglePanel('example-info')">닫기</button>
-        </div>
-        <div class="info-panel__body">
-            <p>여기에 예제 데이터 설명을 작성하세요.</p>
-        </div>
-    </section>
-
-    <section class="plugin-controls">
-        <h2>Parameters</h2>
-        <div class="param-group">
-            <label>Threshold: <input id="param-threshold" type="number" value="1.0" step="0.1" min="0"></label>
-        </div>
-        <div class="action-buttons">
-            <button onclick="runExample()">Run Example</button>
-        </div>
-    </section>
-
-    <section class="plugin-charts">
-        <div class="chart-container">
-            <h3>Original Time Series</h3>
-            <canvas id="main-chart"></canvas>
-        </div>
-        <div class="chart-container">
-            <h3>Hotelling T² Statistic (sliding window)</h3>
-            <canvas id="t2-chart"></canvas>
-        </div>
-    </section>
-
-    <section class="plugin-results" id="results-section" style="display:none;">
-        <h2>Detection Results</h2>
-        <div class="stats-cards">
-            <div class="stat-card"><span class="stat-value" id="stat-alarms">-</span><span class="stat-label">Events</span></div>
-            <div class="stat-card"><span class="stat-value" id="stat-score">-</span><span class="stat-label">Max Score</span></div>
-            <div class="stat-card"><span class="stat-value" id="stat-severity">-</span><span class="stat-label">Severity</span></div>
-        </div>
-        <table id="events-table">
-            <thead><tr><th>Time</th><th>Score</th><th>Severity</th><th>Message</th></tr></thead>
-            <tbody></tbody>
-        </table>
-    </section>
-
+{% block plugin_extra %}
+<!-- Hotelling T² 전문가 분석 토글 버튼 -->
+<div style="margin-top: 16px; text-align: right;">
+    <button id="btnHotellingDetail" onclick="toggleHotellingDetail()"
+            style="padding: 6px 16px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+        Hotelling T² 전문가 분석 ▼
+    </button>
 </div>
 
+<!-- Hotelling T² 전용 패널 (접이식) -->
+<div id="hotelling-detail-panel" style="display: none; margin-top: 12px;">
+
+    <!-- 전문가 차트 새로고침 -->
+    <div style="margin-bottom: 8px; text-align: right;">
+        <button id="btnExpertRefresh" onclick="onExpertRefresh()"
+                style="padding: 6px 20px; border: none; border-radius: 6px; cursor: pointer; background: #0ea5e9; color: white; font-size: 13px; font-weight: 600;">
+            전문가 차트 새로고침
+        </button>
+    </div>
+
+    <!-- 파라미터 -->
+    <div style="margin-bottom: 12px; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; font-size: 13px;">
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">Hotelling T² Parameters</div>
+                <label>Alpha (α): <input id="param-alpha" type="number" value="0.05" step="0.01" min="0.001" max="0.5" style="width:60px;"></label><br>
+                <label>Window Size: <input id="param-window" type="number" value="50" step="5" min="5" max="500" style="width:60px;"></label><br>
+                <label>Baseline Ratio: <input id="param-baseline" type="number" value="0.5" step="0.1" min="0.1" max="0.9" style="width:60px;"></label>
+            </div>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">Regularization</div>
+                <label>Shrinkage: <input id="param-shrinkage" type="number" value="0.01" step="0.01" min="0" max="1" style="width:60px;"></label>
+                <div style="font-size: 11px; color: #94a3b8; margin-top: 4px;">0 = 정규화 없음<br>0.01 = 기본값 (안정적)<br>1 = 단위 분산</div>
+            </div>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">α 가이드</div>
+                <div style="font-size: 12px; color: #64748b;">
+                    0.01 = 보수적 (임계값 높음)<br>
+                    0.05 = 균형 (기본값)<br>
+                    0.10 = 민감 (임계값 낮음)
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 전문가 차트: T² statistic + threshold -->
+    <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+        <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">T² Statistic (sliding window) with Chi-squared Threshold</div>
+        <canvas id="t2-chart" height="250"></canvas>
+    </div>
+
+    <!-- 결과 -->
+    <div id="results-section" style="display: none;">
+        <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-alarms" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Events</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-score" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Max Score</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-severity" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Severity</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-baseline" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">μ / σ²</span>
+            </div>
+        </div>
+        <table id="events-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+            <thead><tr style="background:#f1f5f9;">
+                <th style="padding:8px; text-align:left;">Time</th>
+                <th style="padding:8px;">Peak T²</th>
+                <th style="padding:8px;">Score</th>
+                <th style="padding:8px;">Severity</th>
+                <th style="padding:8px;">Message</th>
+            </tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+.severity-critical { color: #dc2626; font-weight: 700; }
+.severity-warning { color: #d97706; font-weight: 600; }
+.severity-normal { color: #16a34a; }
+#events-table td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; text-align: center; }
+#events-table td:first-child { text-align: left; }
+</style>
+
+<script>
+function onExpertRefresh() {
+    const btn = document.getElementById('btnExpertRefresh');
+    btn.textContent = '로딩 중...';
+    btn.style.background = '#94a3b8';
+    btn.disabled = true;
+    loadExpertFromCache();
+    setTimeout(() => {
+        btn.textContent = '전문가 차트 새로고침';
+        btn.style.background = '#0ea5e9';
+        btn.disabled = false;
+    }, 1000);
+}
+
+function toggleHotellingDetail() {
+    const panel = document.getElementById('hotelling-detail-panel');
+    const btn = document.getElementById('btnHotellingDetail');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        btn.textContent = 'Hotelling T² 전문가 분석 ▲';
+        if (typeof loadExpertFromCache === 'function') loadExpertFromCache();
+    } else {
+        panel.style.display = 'none';
+        btn.textContent = 'Hotelling T² 전문가 분석 ▼';
+    }
+}
+</script>
 <script src="{{ url_for('hotelling.static', filename='chart.js') }}"></script>
 {% endblock %}

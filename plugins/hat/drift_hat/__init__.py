@@ -1,12 +1,13 @@
-"""drift-hat: Hoeffding Adaptive Tree inspired drift detection plugin."""
+"""drift-hat: ADWIN 기반 적응형 윈도우 drift detection plugin."""
 
 from pathlib import Path
 
 from flask import Blueprint, render_template
 
 from .detector import HatDetector
+from .web.routes import register_routes
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 _PKG_DIR = Path(__file__).resolve().parent
 
@@ -14,14 +15,18 @@ blueprint = Blueprint(
     "hat",
     __name__,
     template_folder=str(_PKG_DIR / "web" / "templates"),
+    static_folder=str(_PKG_DIR / "web" / "static"),
+    static_url_path="/static",
     url_prefix="/drift/hat",
 )
+
+register_routes(blueprint)
 
 
 @blueprint.route("/")
 def page():
     return render_template(
-        "plugin_page.html",
+        "hat/page.html",
         plugin_name="HAT",
         plugin_key="hat",
     )
@@ -37,15 +42,16 @@ def register(app):
         key="hat",
         name="HAT",
         version=__version__,
-        description="Hoeffding Adaptive Tree 기반 ADWIN-like drift 탐지. 두 윈도우의 평균 차이를 Hoeffding bound로 판단.",
+        description="ADWIN 기반 적응형 윈도우 drift 탐지. 값 스트림의 분포 변화를 감지하여 윈도우를 자동 축소.",
         category="statistical",
         card_template="hat/card.html",
         page_url="/drift/hat/",
         icon="tree",
         detector_class=HatDetector,
         params_schema={
-            "min_window": {"type": "int", "default": 30, "label": "Min Window", "description": "최소 윈도우 크기"},
-            "delta": {"type": "float", "default": 0.01, "label": "Delta", "description": "Hoeffding bound confidence."},
-            "reference_ratio": {"type": "float", "default": 0.5, "label": "Reference Ratio", "description": "기준 구간 비율."},
+            "delta": {"type": "float", "default": 0.002, "label": "Delta (ADWIN)",
+                      "description": "ADWIN confidence 파라미터. 작을수록 보수적 (오탐 감소)."},
+            "baseline_ratio": {"type": "float", "default": 0.3, "label": "Baseline Ratio",
+                               "description": "초기 윈도우 구축용 기준 구간 비율."},
         },
     )

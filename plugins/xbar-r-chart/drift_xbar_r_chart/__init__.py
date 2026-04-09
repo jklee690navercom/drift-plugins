@@ -5,8 +5,9 @@ from pathlib import Path
 from flask import Blueprint, render_template
 
 from .detector import XbarRChartDetector
+from .web.routes import register_routes
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 _PKG_DIR = Path(__file__).resolve().parent
 
@@ -14,14 +15,18 @@ blueprint = Blueprint(
     "xbar_r_chart",
     __name__,
     template_folder=str(_PKG_DIR / "web" / "templates"),
+    static_folder=str(_PKG_DIR / "web" / "static"),
+    static_url_path="/static",
     url_prefix="/drift/xbar_r_chart",
 )
+
+register_routes(blueprint)
 
 
 @blueprint.route("/")
 def page():
     return render_template(
-        "plugin_page.html",
+        "xbar_r_chart/page.html",
         plugin_name="X-bar/R Chart",
         plugin_key="xbar_r_chart",
     )
@@ -46,5 +51,6 @@ def register(app):
         params_schema={
             "subgroup_size": {"type": "int", "default": 5, "label": "Subgroup Size", "description": "서브그룹 크기. 데이터를 이 크기로 묶어서 분석."},
             "reference_ratio": {"type": "float", "default": 0.5, "label": "Reference Ratio", "description": "기준 구간 비율 (0~1)."},
+            "baseline_ratio": {"type": "float", "default": 0.5, "label": "Baseline Ratio", "description": "기준 구간 비율 (UCL/CL/LCL 계산용)."},
         },
     )

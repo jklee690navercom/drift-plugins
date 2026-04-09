@@ -1,16 +1,16 @@
 {% extends "plugin_page.html" %}
 
 {% block plugin_extra %}
-<!-- EWMA 전문가 분석 토글 버튼 -->
+<!-- MEWMA 전문가 분석 토글 버튼 -->
 <div style="margin-top: 16px; text-align: right;">
-    <button id="btnEwmaDetail" onclick="toggleEwmaDetail()"
+    <button id="btnMewmaDetail" onclick="toggleMewmaDetail()"
             style="padding: 6px 16px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
-        EWMA 전문가 분석 ▼
+        MEWMA 전문가 분석 ▼
     </button>
 </div>
 
-<!-- EWMA 전용 패널 (접이식) -->
-<div id="ewma-detail-panel" style="display: none; margin-top: 12px;">
+<!-- MEWMA 전용 패널 (접이식) -->
+<div id="mewma-detail-panel" style="display: none; margin-top: 12px;">
 
     <!-- 전문가 차트 새로고침 -->
     <div style="margin-bottom: 8px; text-align: right;">
@@ -24,37 +24,47 @@
     <div style="margin-bottom: 12px; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; font-size: 13px;">
             <div>
-                <div style="font-weight: 600; margin-bottom: 4px;">EWMA Parameters</div>
-                <label>Lambda (λ): <input id="param-lambda" type="number" value="0.2" step="0.05" min="0.01" max="1" style="width:60px;"></label><br>
-                <label>L (한계폭): <input id="param-L" type="number" value="3.0" step="0.5" min="0.5" max="10" style="width:60px;"></label><br>
-                <label>Baseline Ratio: <input id="param-baseline" type="number" value="0.5" step="0.1" min="0.1" max="0.9" style="width:60px;"></label>
-            </div>
-            <div>
-                <div style="font-weight: 600; margin-bottom: 4px;">Options</div>
-                <label>Cooldown: <input id="param-cooldown" type="number" value="5" step="1" min="0" max="50" style="width:60px;"></label><br>
-                <label><input type="checkbox" id="param-twosided" checked> Two-sided (양측 검정)</label>
+                <div style="font-weight: 600; margin-bottom: 4px;">MEWMA Parameters</div>
+                <label>Lambda (λ): <input id="param-lambda" type="number" value="0.1" step="0.05" min="0.01" max="1" style="width:60px;"></label><br>
+                <label>Alpha (α): <input id="param-alpha" type="number" value="0.001" step="0.001" min="0.0001" max="0.1" style="width:70px;"></label><br>
+                <label>Baseline Ratio: <input id="param-baseline" type="number" value="0.3333" step="0.05" min="0.1" max="0.9" style="width:70px;"></label>
             </div>
             <div>
                 <div style="font-weight: 600; margin-bottom: 4px;">λ 가이드</div>
                 <div style="font-size: 12px; color: #64748b;">
                     0.05 = 부드러움/지연<br>
-                    0.10 = 균형<br>
-                    0.20 = 반응적 (기본값)<br>
-                    0.30 = 빠름/노이즈
+                    0.10 = 균형 (기본값)<br>
+                    0.20 = 반응적<br>
+                    0.50 = 빠름/노이즈
+                </div>
+            </div>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">α 가이드</div>
+                <div style="font-size: 12px; color: #64748b;">
+                    0.001 = 보수적 (기본값)<br>
+                    0.005 = 균형<br>
+                    0.01  = 민감<br>
+                    0.05  = 매우 민감
                 </div>
             </div>
         </div>
         <div style="margin-top: 8px;">
-            <button onclick="runExample()" style="padding: 6px 24px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+            <button onclick="runMewmaExample()" style="padding: 6px 24px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
                 Run Analysis (예제 데이터)
             </button>
         </div>
     </div>
 
-    <!-- 전문가 차트: EWMA + UCL/LCL -->
+    <!-- 전문가 차트: D² Statistic + UCL -->
     <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
-        <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">EWMA Control Chart (UCL / LCL)</div>
-        <canvas id="ewma-chart" height="250"></canvas>
+        <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">D² Statistic (Mahalanobis Distance) vs UCL</div>
+        <canvas id="d2-chart" height="250"></canvas>
+    </div>
+
+    <!-- 전문가 차트: Per-feature EWMA traces -->
+    <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+        <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">Per-Feature EWMA Traces (Z_t)</div>
+        <canvas id="ewma-traces-chart" height="250"></canvas>
     </div>
 
     <!-- 결과 -->
@@ -69,34 +79,28 @@
                 <span style="display:block; font-size:0.75rem; color:#94a3b8;">Max Score</span>
             </div>
             <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
-                <span id="stat-direction" style="font-size:1.3rem; font-weight:700;">-</span>
-                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Direction</span>
+                <span id="stat-features" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Features (p)</span>
             </div>
             <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
-                <span id="stat-baseline" style="font-size:1.3rem; font-weight:700;">-</span>
-                <span style="display:block; font-size:0.75rem; color:#94a3b8;">μ0 / σ0</span>
+                <span id="stat-ucl" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">UCL (χ²)</span>
             </div>
         </div>
         <table id="events-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
             <thead><tr style="background:#f1f5f9;">
                 <th style="padding:8px; text-align:left;">Time</th>
-                <th style="padding:8px;">EWMA</th>
+                <th style="padding:8px;">D²</th>
                 <th style="padding:8px;">Score</th>
                 <th style="padding:8px;">Severity</th>
-                <th style="padding:8px;">Direction</th>
+                <th style="padding:8px;">Alarms</th>
             </tr></thead>
             <tbody></tbody>
         </table>
     </div>
 </div>
 
-<style>
-.severity-critical { color: #dc2626; font-weight: 700; }
-.severity-warning { color: #d97706; font-weight: 600; }
-.severity-normal { color: #16a34a; }
-#events-table td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; text-align: center; }
-#events-table td:first-child { text-align: left; }
-</style>
+<link rel="stylesheet" href="{{ url_for('mewma.static', filename='style.css') }}">
 
 <script>
 function onExpertRefresh() {
@@ -104,7 +108,7 @@ function onExpertRefresh() {
     btn.textContent = '로딩 중...';
     btn.style.background = '#94a3b8';
     btn.disabled = true;
-    loadExpertFromCache();
+    if (typeof loadExpertFromCache === 'function') loadExpertFromCache();
     setTimeout(() => {
         btn.textContent = '전문가 차트 새로고침';
         btn.style.background = '#0ea5e9';
@@ -112,16 +116,16 @@ function onExpertRefresh() {
     }, 1000);
 }
 
-function toggleEwmaDetail() {
-    const panel = document.getElementById('ewma-detail-panel');
-    const btn = document.getElementById('btnEwmaDetail');
+function toggleMewmaDetail() {
+    const panel = document.getElementById('mewma-detail-panel');
+    const btn = document.getElementById('btnMewmaDetail');
     if (panel.style.display === 'none') {
         panel.style.display = 'block';
-        btn.textContent = 'EWMA 전문가 분석 ▲';
+        btn.textContent = 'MEWMA 전문가 분석 ▲';
         if (typeof loadExpertFromCache === 'function') loadExpertFromCache();
     } else {
         panel.style.display = 'none';
-        btn.textContent = 'EWMA 전문가 분석 ▼';
+        btn.textContent = 'MEWMA 전문가 분석 ▼';
     }
 }
 </script>

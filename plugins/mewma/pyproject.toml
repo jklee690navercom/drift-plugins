@@ -5,11 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "drift-mewma"
 version = "2.0.0"
-description = "EWMA control chart drift detection plugin for drift-framework"
+description = "MEWMA (Multivariate EWMA) drift detection plugin for drift-framework"
 requires-python = ">=3.11"
 dependencies = [
     "drift-framework>=0.1,<1.0",
-    "matplotlib>=3.8",
+    "scipy>=1.10",
 ]
 
 [project.entry-points."drift_framework.plugins"]
@@ -22,5 +22,4 @@ include = ["drift_mewma*"]
 drift_mewma = [
     "web/templates/**/*",
     "web/static/**/*",
-    "examples/*.csv",
 ]

@@ -1,172 +1,128 @@
-{% extends "base.html" %}
+{% extends "plugin_page.html" %}
 
-{% block title %}SHAP Drift Detection{% endblock %}
-
-{% block head %}
-<link rel="stylesheet" href="{{ url_for('shap.static', filename='style.css') }}">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-{% endblock %}
-
-{% block content %}
-<div class="shap-page">
-
-    <section class="shap-header">
-        <h1>SHAP Drift (Feature Importance Change)</h1>
-        <p>Rolling statistics를 feature로 추출하여, 기준 구간과 테스트 윈도우 간 feature 분포 변화를 감지한다.</p>
-        <div class="info-buttons">
-            <button class="btn-info" onclick="togglePanel('algorithm-info')">SHAP Drift 알고리즘 설명</button>
-            <button class="btn-info" onclick="togglePanel('example-info')">예제 데이터 설명</button>
-        </div>
-    </section>
-
-    <!-- 알고리즘 설명 패널 -->
-    <section class="info-panel" id="algorithm-info" style="display:none;">
-        <div class="info-panel__header">
-            <h2>SHAP Drift 알고리즘</h2>
-            <button class="btn-close" onclick="togglePanel('algorithm-info')">닫기</button>
-        </div>
-        <div class="info-panel__body">
-            <h3>개요</h3>
-            <p>Feature importance 변화 기반 drift 탐지이다. 단변량 시계열에서
-               rolling statistics(rolling_mean, rolling_std, rolling_diff)를 feature로 추출한 뒤,
-               각 feature의 분포가 기준 구간과 달라졌는지 KS 검정으로 판단한다.</p>
-
-            <h3>원리</h3>
-            <ul>
-                <li><strong>Feature 추출</strong>: rolling_mean, rolling_std, rolling_diff</li>
-                <li>각 feature에 대해 기준 구간 vs 테스트 윈도우 KS 검정 수행</li>
-                <li>모든 feature에서 유의한 변화가 감지되면 drift alarm</li>
-                <li><strong>Score</strong> = max(KS statistic) / 0.5</li>
-            </ul>
-
-            <h3>파라미터</h3>
-            <table class="info-table">
-                <thead><tr><th>파라미터</th><th>의미</th><th>기본값</th><th>효과</th></tr></thead>
-                <tbody>
-                    <tr>
-                        <td><strong>Window Size</strong></td>
-                        <td>슬라이딩 윈도우 크기</td>
-                        <td>50</td>
-                        <td>클수록 안정적이나 지연 증가</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Reference Ratio</strong></td>
-                        <td>기준 구간 비율</td>
-                        <td>0.5</td>
-                        <td>전체 데이터에서 기준 분포로 사용할 비율</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Alpha (α)</strong></td>
-                        <td>유의수준</td>
-                        <td>0.05</td>
-                        <td>작을수록 보수적</td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <h3>적합한 상황</h3>
-            <ul>
-                <li>단순 평균/분산 변화 외에 데이터의 동적 특성 변화를 감지하고 싶은 경우</li>
-                <li>다양한 통계적 특성의 변화를 종합적으로 판단하고 싶은 경우</li>
-                <li>Feature importance 관점에서 drift를 해석하고 싶은 경우</li>
-            </ul>
-
-            <h3>참고 문헌</h3>
-            <ul>
-                <li>Lundberg, S.M. and Lee, S.I. (2017). "A Unified Approach to Interpreting Model Predictions." <em>NeurIPS</em>.</li>
-            </ul>
-        </div>
-    </section>
-
-    <!-- 예제 데이터 설명 패널 -->
-    <section class="info-panel" id="example-info" style="display:none;">
-        <div class="info-panel__header">
-            <h2>예제 데이터</h2>
-            <button class="btn-close" onclick="togglePanel('example-info')">닫기</button>
-        </div>
-        <div class="info-panel__body">
-            <h3>데이터 구성</h3>
-            <p>합성 데이터 <strong>300건</strong>으로 구성된다.</p>
-            <table class="info-table">
-                <thead><tr><th>구간</th><th>건수</th><th>평균</th><th>표준편차</th><th>설명</th></tr></thead>
-                <tbody>
-                    <tr>
-                        <td><strong>정상 구간</strong></td>
-                        <td>200건</td>
-                        <td>0.90</td>
-                        <td>0.02</td>
-                        <td>AI 모델이 정상적으로 동작하는 상태</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Drift 구간</strong></td>
-                        <td>100건</td>
-                        <td>0.80</td>
-                        <td>0.03</td>
-                        <td>모델 성능 저하 상태</td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <h3>차트 읽는 법</h3>
-            <ul>
-                <li><strong>상단 차트</strong>: 원본 값(검정). 빨간 점이 alarm 시점.</li>
-                <li><strong>하단 차트</strong>: 각 feature의 KS drift score. 높을수록 분포 차이가 크다.</li>
-                <li>모든 feature score가 높은 구간에서 drift가 감지된다.</li>
-            </ul>
-        </div>
-    </section>
-
-    <section class="shap-controls">
-        <h2>Parameters</h2>
-        <div class="param-group">
-            <label>
-                Window Size: <input id="param-window" type="number" value="50" step="10" min="10">
-                <span class="hint">슬라이딩 윈도우 크기</span>
-            </label>
-            <label>
-                Alpha (α): <input id="param-alpha" type="number" value="0.05" step="0.01" min="0.001">
-                <span class="hint">작을수록 보수적</span>
-            </label>
-        </div>
-        <div class="action-buttons">
-            <button onclick="runExample()">Run Example</button>
-        </div>
-    </section>
-
-    <section class="shap-charts">
-        <div class="chart-container">
-            <h3>Original Time Series</h3>
-            <canvas id="value-chart"></canvas>
-        </div>
-        <div class="chart-container">
-            <h3>Feature Drift Scores</h3>
-            <canvas id="stat-chart"></canvas>
-        </div>
-    </section>
-
-    <section class="shap-results" id="results-section" style="display:none;">
-        <h2>Detection Results</h2>
-        <div class="stats-cards">
-            <div class="stat-card">
-                <span class="stat-value" id="stat-alarms">-</span>
-                <span class="stat-label">Events</span>
-            </div>
-            <div class="stat-card">
-                <span class="stat-value" id="stat-score">-</span>
-                <span class="stat-label">Max Score</span>
-            </div>
-            <div class="stat-card">
-                <span class="stat-value" id="stat-severity">-</span>
-                <span class="stat-label">Max Severity</span>
-            </div>
-        </div>
-        <table id="events-table">
-            <thead><tr><th>Time</th><th>Score</th><th>Severity</th><th>Message</th></tr></thead>
-            <tbody></tbody>
-        </table>
-    </section>
-
+{% block plugin_extra %}
+<!-- SHAP 전문가 분석 토글 버튼 -->
+<div style="margin-top: 16px; text-align: right;">
+    <button id="btnShapDetail" onclick="toggleShapDetail()"
+            style="padding: 6px 16px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+        SHAP 전문가 분석 ▼
+    </button>
 </div>
 
+<!-- SHAP 전용 패널 (접이식) -->
+<div id="shap-detail-panel" style="display: none; margin-top: 12px;">
+
+    <!-- 전문가 차트 새로고침 -->
+    <div style="margin-bottom: 8px; text-align: right;">
+        <button id="btnExpertRefresh" onclick="onExpertRefresh()"
+                style="padding: 6px 20px; border: none; border-radius: 6px; cursor: pointer; background: #0ea5e9; color: white; font-size: 13px; font-weight: 600;">
+            전문가 차트 새로고침
+        </button>
+    </div>
+
+    <!-- 파라미터 -->
+    <div style="margin-bottom: 12px; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; font-size: 13px;">
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">SHAP Parameters</div>
+                <label>Window Size: <input id="param-window" type="number" value="100" step="10" min="10" style="width:60px;"></label><br>
+                <label>Baseline Ratio: <input id="param-baseline" type="number" value="0.5" step="0.1" min="0.1" max="0.9" style="width:60px;"></label><br>
+                <label>Threshold: <input id="param-threshold" type="number" value="3.0" step="0.5" min="0.5" max="20" style="width:60px;"></label>
+            </div>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">Profile 구성</div>
+                <div style="font-size: 12px; color: #64748b;">
+                    mean = 평균<br>
+                    std = 표준편차<br>
+                    skewness = 왜도<br>
+                    kurtosis = 첨도
+                </div>
+            </div>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">Threshold 가이드</div>
+                <div style="font-size: 12px; color: #64748b;">
+                    1.5 = 매우 민감<br>
+                    3.0 = 균형 (기본값)<br>
+                    5.0 = 보수적<br>
+                    10.0 = 매우 보수적
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 전문가 차트: Profile Distance -->
+    <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+        <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">Profile Distance Chart (Threshold)</div>
+        <canvas id="shap-distance-chart" height="250"></canvas>
+    </div>
+
+    <!-- 결과 -->
+    <div id="results-section" style="display: none;">
+        <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-alarms" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Events</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-score" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Max Score</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-peak-dist" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Peak Distance</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-severity" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Max Severity</span>
+            </div>
+        </div>
+        <table id="events-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+            <thead><tr style="background:#f1f5f9;">
+                <th style="padding:8px; text-align:left;">Time</th>
+                <th style="padding:8px;">Distance</th>
+                <th style="padding:8px;">Score</th>
+                <th style="padding:8px;">Severity</th>
+                <th style="padding:8px;">Message</th>
+            </tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+.severity-critical { color: #dc2626; font-weight: 700; }
+.severity-warning { color: #d97706; font-weight: 600; }
+.severity-normal { color: #16a34a; }
+#events-table td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; text-align: center; }
+#events-table td:first-child { text-align: left; }
+</style>
+
+<script>
+function onExpertRefresh() {
+    const btn = document.getElementById('btnExpertRefresh');
+    btn.textContent = '로딩 중...';
+    btn.style.background = '#94a3b8';
+    btn.disabled = true;
+    loadExpertFromCache();
+    setTimeout(() => {
+        btn.textContent = '전문가 차트 새로고침';
+        btn.style.background = '#0ea5e9';
+        btn.disabled = false;
+    }, 1000);
+}
+
+function toggleShapDetail() {
+    const panel = document.getElementById('shap-detail-panel');
+    const btn = document.getElementById('btnShapDetail');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        btn.textContent = 'SHAP 전문가 분석 ▲';
+        if (typeof loadExpertFromCache === 'function') loadExpertFromCache();
+    } else {
+        panel.style.display = 'none';
+        btn.textContent = 'SHAP 전문가 분석 ▼';
+    }
+}
+</script>
 <script src="{{ url_for('shap.static', filename='chart.js') }}"></script>
 {% endblock %}

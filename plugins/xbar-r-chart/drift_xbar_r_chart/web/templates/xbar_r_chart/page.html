@@ -1,167 +1,132 @@
-{% extends "base.html" %}
+{% extends "plugin_page.html" %}
 
-{% block title %}X-bar/R Chart Drift Detection{% endblock %}
-
-{% block head %}
-<link rel="stylesheet" href="{{ url_for('xbar_r_chart.static', filename='style.css') }}">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-{% endblock %}
-
-{% block content %}
-<div class="xbar-r-chart-page">
-
-    <section class="xbar-r-chart-header">
-        <h1>X-bar/R Chart</h1>
-        <p>서브그룹 평균(X-bar)과 범위(R)를 동시에 모니터링하는 제어 차트. 배치 단위 데이터의 평균 이동과 산포 변화를 감지한다.</p>
-        <div class="info-buttons">
-            <button class="btn-info" onclick="togglePanel('algorithm-info')">X-bar/R Chart 알고리즘 설명</button>
-            <button class="btn-info" onclick="togglePanel('example-info')">예제 데이터 설명</button>
-        </div>
-    </section>
-
-    <!-- 알고리즘 설명 패널 -->
-    <section class="info-panel" id="algorithm-info" style="display:none;">
-        <div class="info-panel__header">
-            <h2>X-bar/R Chart 알고리즘</h2>
-            <button class="btn-close" onclick="togglePanel('algorithm-info')">닫기</button>
-        </div>
-        <div class="info-panel__body">
-            <h3>개요</h3>
-            <p>X&#772;-R 차트는 데이터를 서브그룹으로 묶어 각 그룹의 평균(X&#772;)과 범위(R)를 모니터링하는 제어 차트이다.
-               배치 단위로 데이터가 들어오거나, 시간 구간별로 그룹을 만들 수 있을 때 적합하다.</p>
-
-            <h3>X&#772; Chart (서브그룹 평균 차트)</h3>
-            <p>서브그룹 평균이 제어 한계 안에 있는지 확인한다.</p>
-            <ul>
-                <li><strong>CL</strong> = X&#773; (전체 서브그룹 평균의 평균)</li>
-                <li><strong>UCL</strong> = X&#773; + A2 &times; R&#772;</li>
-                <li><strong>LCL</strong> = X&#773; - A2 &times; R&#772;</li>
-                <li>A2 = 0.577 for subgroup size n=5</li>
-            </ul>
-
-            <h3>R Chart (서브그룹 범위 차트)</h3>
-            <p>서브그룹 범위(max-min)가 제어 한계 안에 있는지 확인한다.</p>
-            <ul>
-                <li><strong>CL</strong> = R&#772;</li>
-                <li><strong>UCL</strong> = D4 &times; R&#772; (D4=2.114 for n=5)</li>
-                <li><strong>LCL</strong> = D3 &times; R&#772; (D3=0 for n=5)</li>
-            </ul>
-
-            <h3>AI 모니터링 적용</h3>
-            <p>시간대별/배치별 평균 confidence와 산포를 모니터링. 평균은 정상인데 산포가 커지면 모델이 불안정해진 것.</p>
-
-            <h3>파라미터</h3>
-            <table class="info-table">
-                <thead><tr><th>파라미터</th><th>의미</th><th>기본값</th><th>효과</th></tr></thead>
-                <tbody>
-                    <tr>
-                        <td><strong>subgroup_size</strong></td>
-                        <td>서브그룹 크기. 데이터를 이 크기로 묶어서 분석.</td>
-                        <td>5</td>
-                        <td>크기가 클수록 평균 차트가 안정적이나, 그룹 수가 줄어든다.</td>
-                    </tr>
-                    <tr>
-                        <td><strong>reference_ratio</strong></td>
-                        <td>기준 구간 비율.</td>
-                        <td>0.5</td>
-                        <td>기준 구간이 안정적일수록 제어 한계가 정확해진다.</td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-    </section>
-
-    <!-- 예제 데이터 설명 패널 -->
-    <section class="info-panel" id="example-info" style="display:none;">
-        <div class="info-panel__header">
-            <h2>예제 데이터</h2>
-            <button class="btn-close" onclick="togglePanel('example-info')">닫기</button>
-        </div>
-        <div class="info-panel__body">
-            <h3>데이터 구성</h3>
-            <p>합성 데이터 <strong>300건</strong>을 서브그룹 크기 5로 묶어 <strong>60개 그룹</strong> 생성.</p>
-
-            <table class="info-table">
-                <thead><tr><th>구간</th><th>그룹 수</th><th>설명</th></tr></thead>
-                <tbody>
-                    <tr>
-                        <td><strong>정상 구간 (그룹 1~40)</strong></td>
-                        <td>40개</td>
-                        <td>안정적 평균과 범위</td>
-                    </tr>
-                    <tr>
-                        <td><strong>이상 구간 (그룹 41~60)</strong></td>
-                        <td>20개</td>
-                        <td>평균 하락 + 범위 증가</td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <h3>기대 결과</h3>
-            <ul>
-                <li>X&#772; Chart에서 평균 이탈 감지</li>
-                <li>R Chart에서 범위 증가 감지</li>
-            </ul>
-
-            <h3>차트 읽는 법</h3>
-            <ul>
-                <li><strong>상단 차트 (X&#772; Chart)</strong>: 서브그룹 평균과 UCL/LCL/CL 라인. 빨간 점이 alarm.</li>
-                <li><strong>하단 차트 (R Chart)</strong>: 서브그룹 범위와 UCL/CL 라인. 빨간 점이 alarm.</li>
-            </ul>
-        </div>
-    </section>
-
-    <section class="xbar-r-chart-controls">
-        <h2>Parameters</h2>
-        <div class="param-group">
-            <label>
-                Subgroup Size: <input id="param-subgroup-size" type="number" value="5" step="1" min="2" max="25">
-                <span class="hint">서브그룹 크기</span>
-            </label>
-            <label>
-                Reference Ratio: <input id="param-reference-ratio" type="number" value="0.5" step="0.1" min="0.1" max="0.9">
-                <span class="hint">기준 구간 비율</span>
-            </label>
-        </div>
-        <div class="action-buttons">
-            <button onclick="runExample()">Run Example</button>
-        </div>
-    </section>
-
-    <section class="xbar-r-chart-charts">
-        <div class="chart-container">
-            <h3>X-bar Chart (Subgroup Means)</h3>
-            <canvas id="xbar-chart"></canvas>
-        </div>
-        <div class="chart-container">
-            <h3>R Chart (Subgroup Ranges)</h3>
-            <canvas id="r-chart"></canvas>
-        </div>
-    </section>
-
-    <section class="xbar-r-chart-results" id="results-section" style="display:none;">
-        <h2>Detection Results</h2>
-        <div class="stats-cards">
-            <div class="stat-card">
-                <span class="stat-value" id="stat-alarms">-</span>
-                <span class="stat-label">Events</span>
-            </div>
-            <div class="stat-card">
-                <span class="stat-value" id="stat-score">-</span>
-                <span class="stat-label">Max Score</span>
-            </div>
-            <div class="stat-card">
-                <span class="stat-value" id="stat-severity">-</span>
-                <span class="stat-label">Max Severity</span>
-            </div>
-        </div>
-        <table id="events-table">
-            <thead><tr><th>Time</th><th>Score</th><th>Severity</th><th>Message</th></tr></thead>
-            <tbody></tbody>
-        </table>
-    </section>
-
+{% block plugin_extra %}
+<!-- X-bar/R Chart 전문가 분석 토글 버튼 -->
+<div style="margin-top: 16px; text-align: right;">
+    <button id="btnXbarRDetail" onclick="toggleXbarRDetail()"
+            style="padding: 6px 16px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+        X-bar/R Chart 관리도 상세 ▼
+    </button>
 </div>
 
+<!-- X-bar/R Chart 전용 패널 (접이식) -->
+<div id="xbar-r-detail-panel" style="display: none; margin-top: 12px;">
+
+    <!-- 전문가 차트 새로고침 -->
+    <div style="margin-bottom: 8px; text-align: right;">
+        <button id="btnExpertRefresh" onclick="onExpertRefresh()"
+                style="padding: 6px 20px; border: none; border-radius: 6px; cursor: pointer; background: #0ea5e9; color: white; font-size: 13px; font-weight: 600;">
+            전문가 차트 새로고침
+        </button>
+    </div>
+
+    <!-- 파라미터 -->
+    <div style="margin-bottom: 12px; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; font-size: 13px;">
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">X-bar/R Parameters</div>
+                <label>Baseline Ratio: <input id="param-baseline" type="number" value="0.5" step="0.1" min="0.1" max="0.9" style="width:60px;"></label><br>
+                <label>Subgroup Size: <input id="param-subgroup" type="number" value="5" step="1" min="2" max="25" style="width:60px;"></label>
+            </div>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">SPC 가이드</div>
+                <div style="font-size: 12px; color: #64748b;">
+                    CL = X&#773; (전체 평균)<br>
+                    UCL = X&#773; + A2 * R&#772;<br>
+                    LCL = X&#773; - A2 * R&#772;<br>
+                    A2 = 0.577 (n=5)
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 전문가 차트: X-bar Chart + UCL/CL/LCL -->
+    <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+        <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">X-bar Chart (UCL / CL / LCL)</div>
+        <canvas id="xbar-chart-expert" height="250"></canvas>
+        <div style="margin-top: 4px;">
+            <input type="range" id="expertScroll" min="0" max="1000" value="0"
+                   style="width: 100%; height: 6px; cursor: pointer; accent-color: #3b82f6;"
+                   oninput="onExpertScroll(this.value)">
+        </div>
+        <div style="margin-top: 4px; display: flex; gap: 6px; font-size: 11px;">
+            <span style="font-weight: 600; color: #475569;">표시 범위:</span>
+            <button class="expert-range-btn" onclick="setExpertRange(12)">시간</button>
+            <button class="expert-range-btn active" onclick="setExpertRange(288)">일</button>
+            <button class="expert-range-btn" onclick="setExpertRange(2016)">주</button>
+            <button class="expert-range-btn" onclick="setExpertRange(8640)">월</button>
+            <button class="expert-range-btn" onclick="setExpertRange(0)">전체</button>
+        </div>
+    </div>
+
+    <!-- 결과 -->
+    <div id="results-section" style="display: none;">
+        <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-alarms" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Events</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-score" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Max Score</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-severity" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Max Severity</span>
+            </div>
+        </div>
+        <table id="events-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+            <thead><tr style="background:#f1f5f9;">
+                <th style="padding:8px; text-align:left;">Time</th>
+                <th style="padding:8px;">Score</th>
+                <th style="padding:8px;">Severity</th>
+                <th style="padding:8px;">Message</th>
+            </tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+.severity-critical { color: #dc2626; font-weight: 700; }
+.severity-warning { color: #d97706; font-weight: 600; }
+.severity-normal { color: #16a34a; }
+#events-table td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; text-align: center; }
+#events-table td:first-child { text-align: left; }
+.expert-range-btn {
+    padding: 2px 8px; border: 1px solid #e2e8f0; border-radius: 3px;
+    background: #fff; cursor: pointer;
+}
+.expert-range-btn:hover { background: #eff6ff; }
+.expert-range-btn.active { background: #3b82f6; color: white; border-color: #3b82f6; }
+</style>
+
+<script>
+function onExpertRefresh() {
+    const btn = document.getElementById('btnExpertRefresh');
+    btn.textContent = '로딩 중...';
+    btn.style.background = '#94a3b8';
+    btn.disabled = true;
+    loadExpertFromCache();
+    setTimeout(() => {
+        btn.textContent = '전문가 차트 새로고침';
+        btn.style.background = '#0ea5e9';
+        btn.disabled = false;
+    }, 1000);
+}
+
+function toggleXbarRDetail() {
+    const panel = document.getElementById('xbar-r-detail-panel');
+    const btn = document.getElementById('btnXbarRDetail');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        btn.textContent = 'X-bar/R Chart 관리도 상세 ▲';
+        if (typeof loadExpertFromCache === 'function') loadExpertFromCache();
+    } else {
+        panel.style.display = 'none';
+        btn.textContent = 'X-bar/R Chart 관리도 상세 ▼';
+    }
+}
+</script>
 <script src="{{ url_for('xbar_r_chart.static', filename='chart.js') }}"></script>
 {% endblock %}

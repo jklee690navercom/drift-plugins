@@ -1,7 +1,10 @@
 # SHAP (Feature Importance Drift)
 
 ## 개요
-단변량 시계열에서 rolling statistics를 feature로 추출한 뒤, 기준 구간과 테스트 윈도우 간 KS 검정으로 모든 feature의 분포가 동시에 변했는지를 감지하는 drift 탐지 알고리즘이다.
+
+단변량 시계열에서 rolling statistics를 feature로 추출한 뒤, 기준 구간과 테스트 윈도우 간 KS 검정으로 모든 feature의 분포가 동시에 변했는지를 감지하는 drift 탐지 알고리즘이다. **SHAP(TreeExplainer) 기반 feature importance 모니터링**의 개념을 차용하여, 데이터의 여러 통계적 특성이 동시에 변하는 복합적인 drift를 감지하는 데 적합하다.
+
+---
 
 ## 알고리즘 원리
 
@@ -37,17 +40,75 @@ $$\text{score} = \frac{\max_f(D_f)}{0.5}$$
 
 KS 통계량의 최대값을 0.5로 정규화한다 (KS stat = 0.5이면 score = 1.0).
 
+### TreeExplainer와의 관계
+
+SHAP의 TreeExplainer는 트리 기반 모델(XGBoost, LightGBM, Random Forest 등)의 예측을 각 feature의 기여도로 분해한다:
+
+$$f(x) = \phi_0 + \sum_{i=1}^{M} \phi_i$$
+
+여기서:
+- $\phi_0$: 기대값 (base value)
+- $\phi_i$: feature $i$의 SHAP value (기여도)
+
+**Feature Importance Drift 감지 절차:**
+
+1. 기준 구간에서 모델의 SHAP value 분포를 계산
+2. 테스트 구간에서 동일 모델의 SHAP value 분포를 계산
+3. 각 feature의 SHAP value 분포 변화를 KS 검정으로 비교
+4. 유의하게 변한 feature가 있으면 → feature importance drift
+
+이 구현에서는 모델 없이도 활용할 수 있도록, rolling statistics를 "feature"로 사용하여 동일한 로직을 적용한다.
+
 ### 핵심 아이디어
 
 단일 값의 변화만 보는 것이 아니라, 데이터의 여러 통계적 특성(평균, 변동성, 변화율)이 동시에 변했는지를 확인한다. 모든 feature의 분포가 동시에 유의하게 변한 경우에만 drift로 판단하므로, 오경보를 줄이면서도 실질적인 데이터 패턴 변화를 감지할 수 있다.
 
+---
+
 ## 파라미터
 
-| 파라미터 | 기본값 | 설명 |
-|---|---|---|
-| `window_size` | 50 | 테스트 슬라이딩 윈도우의 크기 |
-| `reference_ratio` | 0.5 | 전체 데이터에서 기준 구간이 차지하는 비율 |
-| `alpha` | 0.05 | 각 feature별 KS 검정의 유의수준 |
+| 파라미터 | 기본값 | 설명 | 효과 |
+|---|---|---|---|
+| `window_size` | 50 | 테스트 슬라이딩 윈도우 크기 | 크면 안정적, 작으면 빠른 반응 |
+| `reference_ratio` | 0.5 | 기준 구간 비율 | 기준 feature 분포 추정에 사용 |
+| `alpha` | 0.05 | 각 feature별 KS 검정의 유의수준 | 작을수록 보수적 |
+
+---
+
+## 데이터 시나리오
+
+### 센서 3변량 — feature importance 변화
+
+| 구간 | 시점 | 패턴 | SHAP 반응 |
+|------|------|------|-----------|
+| 정상 | 0~199 | 센서 3개 안정 (온도, 진동, 압력) | rolling_mean, rolling_std, rolling_diff 모두 정상 분포 유지 |
+| 진동 증가 | 200~299 | 진동 센서 변동성 증가 | rolling_std만 유의 → **미탐지** (전체 feature AND 조건 미충족) |
+| 복합 변화 | 300~399 | 온도 상승 + 진동 증가 + 압력 변동 | rolling_mean, rolling_std, rolling_diff 모두 유의 → **alarm** |
+| 복귀 | 400~499 | 정상 복귀 | 모든 feature 정상 → alarm 해제 |
+
+이 시나리오는 SHAP 방식의 **AND 조건**이 어떻게 오탐을 줄이는지 보여준다. 하나의 통계 특성만 변하는 경우는 노이즈나 일시적 변동일 수 있으므로 무시하고, 모든 특성이 동시에 변하는 진정한 패턴 변화만 탐지한다.
+
+---
+
+## 다른 알고리즘과의 비교
+
+| 특성 | SHAP | KS Test | OCDD | CUSUM |
+|------|------|---------|------|-------|
+| 감지 대상 | **복합 패턴 변화** | 모든 분포 변화 | 평균+분산 동시 변화 | 평균 변화 |
+| 오탐율 | **매우 낮음** (AND) | 보통 | 매우 낮음 (AND) | 보통 |
+| Feature 수 | 3 (rolling stats) | 1 (원본) | 2 (평균, 분산) | 1 (원본) |
+| 모델 필요 | 불필요 (통계 기반) | 불필요 | 불필요 | 불필요 |
+| 해석성 | 어떤 feature가 변했는지 | D-stat, p-value | z-score | 누적합 |
+
+### 언제 SHAP를 선택하나?
+
+- **평균, 변동성, 추세 변화를 동시에 고려하고 싶다** → SHAP
+- **오탐을 최소화하면서 실질적인 패턴 변화를 잡고 싶다** → SHAP 또는 OCDD
+- **어떤 특성이 변했는지 알고 싶다** → SHAP (feature별 KS stat 제공)
+- **분포 변화를 범용적으로 감지하고 싶다** → KS Test
+- **미세한 평균 변화만 잡으면 된다** → CUSUM
+
+---
 
 ## 탐지 로직
 
@@ -64,27 +125,18 @@ KS 통계량의 최대값을 0.5로 정규화한다 (KS stat = 0.5이면 score =
 5. **이벤트 생성**: 각 그룹에서 drift_score(max KS stat)가 가장 큰 시점을 peak로 선택하고, 각 feature별 KS stat을 detail에 포함한다.
 6. **심각도 판정**: score >= 2.0이면 critical, >= 1.0이면 warning, 그 외 normal.
 
+---
+
 ## 차트 시각화
 
 - **기본 차트**: Value 시계열 + drift 알람 마커
-- **전문가 차트**: 현재 커스텀 시각화가 필요하며, 기본 레이어는 비어 있다 (`layers: []`). 향후 각 feature별 KS stat 추이를 표시하는 확장이 가능하다.
+- **전문가 차트**: 각 feature별 KS stat 추이를 표시하는 확장이 가능하다 (`layers: []`). 향후 rolling_mean, rolling_std, rolling_diff의 KS stat을 개별 선으로 시각화할 예정이다.
 
-## 적합한 상황
-
-### 효과적인 경우
-- 데이터의 여러 통계적 특성이 동시에 변하는 복합적인 drift를 감지할 때
-- 단순한 평균 이동 외에 변동성, 추세 변화까지 고려하고 싶을 때
-- 오경보를 줄이고 싶을 때 (모든 feature가 동시에 유의해야 alarm)
-- Feature importance 기반 drift 모니터링의 개념을 단변량 데이터에 적용하고 싶을 때
-
-### 한계점
-- 3개의 feature가 모두 유의해야 하므로, 단일 특성만 변하는 미세한 drift를 놓칠 수 있다
-- 매 윈도우마다 3회의 KS 검정을 수행하므로 계산 비용이 상대적으로 높다
-- Rolling 통계량 간에 상관관계가 있어 독립 검정의 가정이 엄밀하지 않다
-- Feature 선택이 고정되어 있어, 특정 도메인에서는 더 적합한 feature가 있을 수 있다
+---
 
 ## 참고 문헌
 
 - Lundberg, S. M., & Lee, S.-I. (2017). "A Unified Approach to Interpreting Model Predictions." *NeurIPS*.
+- Lundberg, S. M., Erion, G., Chen, H., et al. (2020). "From Local Explanations to Global Understanding with Explainable AI for Trees." *Nature Machine Intelligence*, 2, 56-67.
 - Lu, J., Liu, A., Dong, F., Gu, F., Gama, J., & Zhang, G. (2018). "Learning under Concept Drift: A Review." *IEEE TKDE*, 31(12), 2346-2363.
 - Rabanser, S., Gunnemann, S., & Lipton, Z. C. (2019). "Failing Loudly: An Empirical Study of Methods for Detecting Dataset Shift." *NeurIPS*.

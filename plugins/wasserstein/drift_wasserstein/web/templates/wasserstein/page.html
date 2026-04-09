@@ -1,171 +1,126 @@
-{% extends "base.html" %}
+{% extends "plugin_page.html" %}
 
-{% block title %}Wasserstein Distance Drift Detection{% endblock %}
-
-{% block head %}
-<link rel="stylesheet" href="{{ url_for('wasserstein.static', filename='style.css') }}">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-{% endblock %}
-
-{% block content %}
-<div class="wasserstein-page">
-
-    <section class="wasserstein-header">
-        <h1>Wasserstein Distance</h1>
-        <p>기준 분포와 슬라이딩 윈도우 간 Wasserstein 거리(Earth Mover's Distance)로 drift를 탐지한다.</p>
-        <div class="info-buttons">
-            <button class="btn-info" onclick="togglePanel('algorithm-info')">Wasserstein 알고리즘 설명</button>
-            <button class="btn-info" onclick="togglePanel('example-info')">예제 데이터 설명</button>
-        </div>
-    </section>
-
-    <!-- 알고리즘 설명 패널 -->
-    <section class="info-panel" id="algorithm-info" style="display:none;">
-        <div class="info-panel__header">
-            <h2>Wasserstein Distance 알고리즘</h2>
-            <button class="btn-close" onclick="togglePanel('algorithm-info')">닫기</button>
-        </div>
-        <div class="info-panel__body">
-            <h3>개요</h3>
-            <p>Wasserstein 거리(Earth Mover's Distance)는 두 확률 분포 사이의 거리를 측정하는 지표이다.
-               한 분포를 다른 분포로 변환하는 데 필요한 최소 "작업량"을 의미한다.</p>
-
-            <h3>원리</h3>
-            <ul>
-                <li>기준 구간(reference)의 분포와 슬라이딩 윈도우(test)의 분포를 비교</li>
-                <li><strong>Wasserstein 거리</strong>: 두 분포의 CDF 차이의 적분</li>
-                <li>거리가 임계값을 초과하면 drift로 판단</li>
-                <li><strong>Score</strong> = distance / threshold</li>
-            </ul>
-
-            <h3>파라미터</h3>
-            <table class="info-table">
-                <thead><tr><th>파라미터</th><th>의미</th><th>기본값</th><th>효과</th></tr></thead>
-                <tbody>
-                    <tr>
-                        <td><strong>Window Size</strong></td>
-                        <td>슬라이딩 윈도우 크기</td>
-                        <td>50</td>
-                        <td>클수록 안정적이나 지연 증가</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Reference Ratio</strong></td>
-                        <td>기준 구간 비율</td>
-                        <td>0.5</td>
-                        <td>전체 데이터에서 기준 분포로 사용할 비율</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Threshold</strong></td>
-                        <td>Wasserstein 거리 임계값</td>
-                        <td>0.1</td>
-                        <td>작을수록 민감, 클수록 보수적</td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <h3>적합한 상황</h3>
-            <ul>
-                <li>분포의 전체적인 형태 변화를 감지하고 싶은 경우</li>
-                <li>평균뿐만 아니라 분산, 왜도 등의 변화도 포착하고 싶은 경우</li>
-                <li>분포 간의 직관적인 거리 측정이 필요한 경우</li>
-            </ul>
-
-            <h3>참고 문헌</h3>
-            <ul>
-                <li>Ramdas, A. et al. (2017). "On Wasserstein Two-Sample Testing and Related Families of Nonparametric Tests." <em>Entropy</em>, 19(2), 47.</li>
-            </ul>
-        </div>
-    </section>
-
-    <!-- 예제 데이터 설명 패널 -->
-    <section class="info-panel" id="example-info" style="display:none;">
-        <div class="info-panel__header">
-            <h2>예제 데이터</h2>
-            <button class="btn-close" onclick="togglePanel('example-info')">닫기</button>
-        </div>
-        <div class="info-panel__body">
-            <h3>데이터 구성</h3>
-            <p>합성 데이터 <strong>300건</strong>으로 구성된다.</p>
-            <table class="info-table">
-                <thead><tr><th>구간</th><th>건수</th><th>평균</th><th>표준편차</th><th>설명</th></tr></thead>
-                <tbody>
-                    <tr>
-                        <td><strong>정상 구간</strong></td>
-                        <td>200건</td>
-                        <td>0.90</td>
-                        <td>0.02</td>
-                        <td>AI 모델이 정상적으로 동작하는 상태</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Drift 구간</strong></td>
-                        <td>100건</td>
-                        <td>0.80</td>
-                        <td>0.03</td>
-                        <td>모델 성능 저하 상태</td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <h3>차트 읽는 법</h3>
-            <ul>
-                <li><strong>상단 차트</strong>: 원본 값(검정). 빨간 점이 alarm 시점.</li>
-                <li><strong>하단 차트</strong>: Wasserstein 거리(주황). 노란 점선이 임계값.</li>
-                <li>거리가 임계값을 넘으면 drift가 감지된 것이다.</li>
-            </ul>
-        </div>
-    </section>
-
-    <section class="wasserstein-controls">
-        <h2>Parameters</h2>
-        <div class="param-group">
-            <label>
-                Window Size: <input id="param-window" type="number" value="50" step="10" min="10">
-                <span class="hint">슬라이딩 윈도우 크기</span>
-            </label>
-            <label>
-                Threshold: <input id="param-threshold" type="number" value="0.1" step="0.01" min="0.01">
-                <span class="hint">작을수록 민감</span>
-            </label>
-        </div>
-        <div class="action-buttons">
-            <button onclick="runExample()">Run Example</button>
-        </div>
-    </section>
-
-    <section class="wasserstein-charts">
-        <div class="chart-container">
-            <h3>Original Time Series</h3>
-            <canvas id="value-chart"></canvas>
-        </div>
-        <div class="chart-container">
-            <h3>Wasserstein Distance</h3>
-            <canvas id="stat-chart"></canvas>
-        </div>
-    </section>
-
-    <section class="wasserstein-results" id="results-section" style="display:none;">
-        <h2>Detection Results</h2>
-        <div class="stats-cards">
-            <div class="stat-card">
-                <span class="stat-value" id="stat-alarms">-</span>
-                <span class="stat-label">Events</span>
-            </div>
-            <div class="stat-card">
-                <span class="stat-value" id="stat-score">-</span>
-                <span class="stat-label">Max Score</span>
-            </div>
-            <div class="stat-card">
-                <span class="stat-value" id="stat-severity">-</span>
-                <span class="stat-label">Max Severity</span>
-            </div>
-        </div>
-        <table id="events-table">
-            <thead><tr><th>Time</th><th>Score</th><th>Severity</th><th>Message</th></tr></thead>
-            <tbody></tbody>
-        </table>
-    </section>
-
+{% block plugin_extra %}
+<!-- Wasserstein 전문가 분석 토글 버튼 -->
+<div style="margin-top: 16px; text-align: right;">
+    <button id="btnWassersteinDetail" onclick="toggleWassersteinDetail()"
+            style="padding: 6px 16px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+        Wasserstein 전문가 분석 ▼
+    </button>
 </div>
 
+<!-- Wasserstein 전용 패널 (접이식) -->
+<div id="wasserstein-detail-panel" style="display: none; margin-top: 12px;">
+
+    <!-- 전문가 차트 새로고침 -->
+    <div style="margin-bottom: 8px; text-align: right;">
+        <button id="btnExpertRefresh" onclick="onExpertRefresh()"
+                style="padding: 6px 20px; border: none; border-radius: 6px; cursor: pointer; background: #0ea5e9; color: white; font-size: 13px; font-weight: 600;">
+            전문가 차트 새로고침
+        </button>
+    </div>
+
+    <!-- 파라미터 -->
+    <div style="margin-bottom: 12px; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; font-size: 13px;">
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">Wasserstein Parameters</div>
+                <label>Window Size: <input id="param-window" type="number" value="50" step="10" min="10" style="width:60px;"></label><br>
+                <label>Threshold: <input id="param-threshold" type="number" value="0.1" step="0.01" min="0.01" style="width:60px;"></label><br>
+                <label>Reference Ratio: <input id="param-refratio" type="number" value="0.5" step="0.1" min="0.1" max="0.9" style="width:60px;"></label>
+            </div>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">EWMA Smoothing</div>
+                <label>Lambda (λ): <input id="param-lambda" type="number" value="0.3" step="0.05" min="0.01" max="1" style="width:60px;"></label><br>
+                <label>Baseline Ratio: <input id="param-baseline" type="number" value="0.5" step="0.1" min="0.1" max="0.9" style="width:60px;"></label><br>
+                <label><input type="checkbox" id="param-updateref" checked> Update Reference</label>
+            </div>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">λ 가이드</div>
+                <div style="font-size: 12px; color: #64748b;">
+                    0.1 = 매우 부드러움<br>
+                    0.2 = 부드러움<br>
+                    0.3 = 균형 (기본값)<br>
+                    0.5 = 반응적<br>
+                    1.0 = 평활 없음
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 전문가 차트: Wasserstein Distance (Raw + Smoothed + Threshold) -->
+    <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+        <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">Wasserstein Distance (Raw + EWMA Smoothed + Threshold)</div>
+        <canvas id="wasserstein-chart" height="250"></canvas>
+    </div>
+
+    <!-- 결과 -->
+    <div id="results-section" style="display: none;">
+        <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-alarms" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Events</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-score" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Max Score</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-severity" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Max Severity</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-ref" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Ref μ / σ</span>
+            </div>
+        </div>
+        <table id="events-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+            <thead><tr style="background:#f1f5f9;">
+                <th style="padding:8px; text-align:left;">Time</th>
+                <th style="padding:8px;">Raw Dist</th>
+                <th style="padding:8px;">Smoothed</th>
+                <th style="padding:8px;">Score</th>
+                <th style="padding:8px;">Severity</th>
+            </tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+.severity-critical { color: #dc2626; font-weight: 700; }
+.severity-warning { color: #d97706; font-weight: 600; }
+.severity-normal { color: #16a34a; }
+#events-table td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; text-align: center; }
+#events-table td:first-child { text-align: left; }
+</style>
+
+<script>
+function onExpertRefresh() {
+    const btn = document.getElementById('btnExpertRefresh');
+    btn.textContent = '로딩 중...';
+    btn.style.background = '#94a3b8';
+    btn.disabled = true;
+    loadExpertFromCache();
+    setTimeout(() => {
+        btn.textContent = '전문가 차트 새로고침';
+        btn.style.background = '#0ea5e9';
+        btn.disabled = false;
+    }, 1000);
+}
+
+function toggleWassersteinDetail() {
+    const panel = document.getElementById('wasserstein-detail-panel');
+    const btn = document.getElementById('btnWassersteinDetail');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        btn.textContent = 'Wasserstein 전문가 분석 ▲';
+        if (typeof loadExpertFromCache === 'function') loadExpertFromCache();
+    } else {
+        panel.style.display = 'none';
+        btn.textContent = 'Wasserstein 전문가 분석 ▼';
+    }
+}
+</script>
 <script src="{{ url_for('wasserstein.static', filename='chart.js') }}"></script>
 {% endblock %}

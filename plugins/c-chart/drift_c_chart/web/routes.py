@@ -29,15 +29,16 @@ def _jsonify(data):
 
 def register_routes(bp: Blueprint):
 
-    @bp.route("/")
-    def page():
-        return render_template("c_chart/page.html")
-
-    @bp.route("/api/example")
+    @bp.route("/api/example", methods=["GET", "POST"])
     def example():
-        """예제 데이터로 C Chart 실행."""
+        """예제 데이터로 C Chart 실행. POST 시 params를 받을 수 있다."""
         import pandas as pd
-        import numpy as np
+
+        # POST 요청에서 파라미터 추출
+        params = {}
+        if request.method == "POST" and request.is_json:
+            body = request.get_json(silent=True) or {}
+            params = body.get("params", {})
 
         # 합성 데이터: 카운트 데이터
         np.random.seed(42)
@@ -54,7 +55,7 @@ def register_routes(bp: Blueprint):
             data=df,
             data_ids=data_ids,
             stream="example",
-            params={},
+            params=params,
         )
 
         return _jsonify({
@@ -66,6 +67,4 @@ def register_routes(bp: Blueprint):
     @bp.route("/api/run", methods=["POST"])
     def run():
         """사용자 파라미터로 C Chart 실행."""
-        body = request.get_json()
-        params = body.get("params", {})
         return example()

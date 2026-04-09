@@ -27,6 +27,7 @@
                 <div style="font-weight: 600; margin-bottom: 4px;">CUSUM Parameters</div>
                 <label>k (Slack): <input id="param-k" type="number" value="0.25" step="0.05" min="0" style="width:60px;"></label><br>
                 <label>h (Threshold): <input id="param-h" type="number" value="5.0" step="0.5" min="0" style="width:60px;"></label><br>
+                <label style="margin-left:8px;"><input type="checkbox" id="param-auto-h" onchange="toggleAutoH()"> Auto h (Bootstrap)</label><br>
                 <label>Baseline Ratio: <input id="param-baseline" type="number" value="0.5" step="0.1" min="0.1" max="0.9" style="width:60px;"></label>
             </div>
             <div>
@@ -36,18 +37,15 @@
                 <label>FIR offset: <input id="param-fir" type="number" value="" step="0.1" min="0" max="1" style="width:60px;" placeholder="없음"></label>
             </div>
             <div>
-                <div style="font-weight: 600; margin-bottom: 4px;">k = δ/2 가이드</div>
-                <div style="font-size: 12px; color: #64748b;">
-                    δ=0.5σ → k=0.25 (기본값)<br>
-                    δ=1.0σ → k=0.50<br>
-                    δ=2.0σ → k=1.00
+                <div style="font-weight: 600; margin-bottom: 4px;">Calibration</div>
+                <label>B (replications): <input id="param-cal-B" type="number" value="500" step="100" min="100" style="width:70px;"></label><br>
+                <label>q (quantile): <input id="param-cal-q" type="number" value="0.995" step="0.005" min="0.9" max="1.0" style="width:70px;"></label>
+                <div style="font-size: 12px; color: #64748b; margin-top: 6px;">
+                    k = δ/2 가이드:<br>
+                    δ=0.5σ → k=0.25<br>
+                    δ=1.0σ → k=0.50
                 </div>
             </div>
-        </div>
-        <div style="margin-top: 8px;">
-            <button onclick="runExample()" style="padding: 6px 24px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
-                Run Analysis (예제 데이터)
-            </button>
         </div>
     </div>
 
@@ -82,6 +80,10 @@
                 <span id="stat-baseline" style="font-size:1.3rem; font-weight:700;">-</span>
                 <span style="display:block; font-size:0.75rem; color:#94a3b8;">μ0 / σ0</span>
             </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-h-info" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">h (source)</span>
+            </div>
         </div>
         <table id="events-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
             <thead><tr style="background:#f1f5f9;">
@@ -106,6 +108,22 @@
 </style>
 
 <script>
+function toggleAutoH() {
+    const autoChecked = document.getElementById('param-auto-h').checked;
+    const hInput = document.getElementById('param-h');
+    const calB = document.getElementById('param-cal-B');
+    const calQ = document.getElementById('param-cal-q');
+    if (autoChecked) {
+        hInput.disabled = true;
+        hInput.style.opacity = '0.5';
+        calB.disabled = false;
+        calQ.disabled = false;
+    } else {
+        hInput.disabled = false;
+        hInput.style.opacity = '1';
+    }
+}
+
 function onExpertRefresh() {
     const btn = document.getElementById('btnExpertRefresh');
     btn.textContent = '로딩 중...';

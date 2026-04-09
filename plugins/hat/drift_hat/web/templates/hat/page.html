@@ -1,174 +1,153 @@
-{% extends "base.html" %}
+{% extends "plugin_page.html" %}
 
-{% block title %}HAT Drift Detection{% endblock %}
-
-{% block head %}
-<link rel="stylesheet" href="{{ url_for('hat.static', filename='style.css') }}">
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-{% endblock %}
-
-{% block content %}
-<div class="hat-page">
-
-    <section class="hat-header">
-        <h1>HAT (Hoeffding Adaptive Tree)</h1>
-        <p>두 윈도우의 평균 차이를 Hoeffding bound로 비교하여 drift를 탐지한다. ADWIN 기반 접근.</p>
-        <div class="info-buttons">
-            <button class="btn-info" onclick="togglePanel('algorithm-info')">HAT 알고리즘 설명</button>
-            <button class="btn-info" onclick="togglePanel('example-info')">예제 데이터 설명</button>
-        </div>
-    </section>
-
-    <!-- 알고리즘 설명 패널 -->
-    <section class="info-panel" id="algorithm-info" style="display:none;">
-        <div class="info-panel__header">
-            <h2>HAT 알고리즘</h2>
-            <button class="btn-close" onclick="togglePanel('algorithm-info')">닫기</button>
-        </div>
-        <div class="info-panel__body">
-            <h3>개요</h3>
-            <p>Hoeffding Adaptive Tree(HAT)에서 영감을 받은 ADWIN-like drift 탐지 기법이다.
-               두 개의 인접한 윈도우(W0, W1)를 유지하면서 평균 차이가 Hoeffding bound를
-               초과하는지 검사한다.</p>
-
-            <h3>원리</h3>
-            <ul>
-                <li>데이터를 순차적으로 처리하면서 두 윈도우 W0(이전), W1(최근)을 유지</li>
-                <li><strong>Hoeffding bound</strong>: <code>ε = R · sqrt(ln(2/δ) / (2·m))</code></li>
-                <li>여기서 R은 데이터 범위, m은 두 윈도우 크기의 조화평균</li>
-                <li><code>|mean(W1) - mean(W0)| > ε</code> 이면 drift 감지</li>
-                <li><strong>Score</strong> = |mean_diff| / hoeffding_bound</li>
-            </ul>
-
-            <h3>파라미터</h3>
-            <table class="info-table">
-                <thead><tr><th>파라미터</th><th>의미</th><th>기본값</th><th>효과</th></tr></thead>
-                <tbody>
-                    <tr>
-                        <td><strong>Min Window</strong></td>
-                        <td>최소 윈도우 크기</td>
-                        <td>30</td>
-                        <td>클수록 안정적이나 지연 증가</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Delta (δ)</strong></td>
-                        <td>Hoeffding bound confidence</td>
-                        <td>0.01</td>
-                        <td>작을수록 보수적 (bound 넓어짐)</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Reference Ratio</strong></td>
-                        <td>기준 구간 비율</td>
-                        <td>0.5</td>
-                        <td>테스트 시작점 결정</td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <h3>적합한 상황</h3>
-            <ul>
-                <li>이론적 보장이 있는 drift 탐지가 필요한 경우</li>
-                <li>스트리밍 데이터에서 실시간 변화 감지가 필요한 경우</li>
-                <li>평균의 갑작스러운 변화를 포착하고 싶은 경우</li>
-            </ul>
-
-            <h3>참고 문헌</h3>
-            <ul>
-                <li>Bifet, A. and Gavalda, R. (2007). "Learning from Time-Changing Data with Adaptive Windowing." <em>SDM</em>.</li>
-                <li>Hoeffding, W. (1963). "Probability Inequalities for Sums of Bounded Random Variables." <em>JASA</em>, 58(301), 13-30.</li>
-            </ul>
-        </div>
-    </section>
-
-    <!-- 예제 데이터 설명 패널 -->
-    <section class="info-panel" id="example-info" style="display:none;">
-        <div class="info-panel__header">
-            <h2>예제 데이터</h2>
-            <button class="btn-close" onclick="togglePanel('example-info')">닫기</button>
-        </div>
-        <div class="info-panel__body">
-            <h3>데이터 구성</h3>
-            <p>합성 데이터 <strong>300건</strong>으로 구성된다.</p>
-            <table class="info-table">
-                <thead><tr><th>구간</th><th>건수</th><th>평균</th><th>표준편차</th><th>설명</th></tr></thead>
-                <tbody>
-                    <tr>
-                        <td><strong>정상 구간</strong></td>
-                        <td>200건</td>
-                        <td>0.90</td>
-                        <td>0.02</td>
-                        <td>AI 모델이 정상적으로 동작하는 상태</td>
-                    </tr>
-                    <tr>
-                        <td><strong>Drift 구간</strong></td>
-                        <td>100건</td>
-                        <td>0.80</td>
-                        <td>0.03</td>
-                        <td>모델 성능 저하 상태</td>
-                    </tr>
-                </tbody>
-            </table>
-
-            <h3>차트 읽는 법</h3>
-            <ul>
-                <li><strong>상단 차트</strong>: 원본 값(검정). 빨간 점이 alarm 시점.</li>
-                <li><strong>하단 차트</strong>: 두 윈도우 평균 차이(보라) vs Hoeffding bound(노란 점선).</li>
-                <li>평균 차이가 bound를 넘으면 drift가 감지된 것이다.</li>
-            </ul>
-        </div>
-    </section>
-
-    <section class="hat-controls">
-        <h2>Parameters</h2>
-        <div class="param-group">
-            <label>
-                Min Window: <input id="param-window" type="number" value="30" step="5" min="10">
-                <span class="hint">최소 윈도우 크기</span>
-            </label>
-            <label>
-                Delta (δ): <input id="param-delta" type="number" value="0.01" step="0.005" min="0.001">
-                <span class="hint">작을수록 보수적</span>
-            </label>
-        </div>
-        <div class="action-buttons">
-            <button onclick="runExample()">Run Example</button>
-        </div>
-    </section>
-
-    <section class="hat-charts">
-        <div class="chart-container">
-            <h3>Original Time Series</h3>
-            <canvas id="value-chart"></canvas>
-        </div>
-        <div class="chart-container">
-            <h3>Window Difference vs Hoeffding Bound</h3>
-            <canvas id="stat-chart"></canvas>
-        </div>
-    </section>
-
-    <section class="hat-results" id="results-section" style="display:none;">
-        <h2>Detection Results</h2>
-        <div class="stats-cards">
-            <div class="stat-card">
-                <span class="stat-value" id="stat-alarms">-</span>
-                <span class="stat-label">Events</span>
-            </div>
-            <div class="stat-card">
-                <span class="stat-value" id="stat-score">-</span>
-                <span class="stat-label">Max Score</span>
-            </div>
-            <div class="stat-card">
-                <span class="stat-value" id="stat-severity">-</span>
-                <span class="stat-label">Max Severity</span>
-            </div>
-        </div>
-        <table id="events-table">
-            <thead><tr><th>Time</th><th>Score</th><th>Severity</th><th>Message</th></tr></thead>
-            <tbody></tbody>
-        </table>
-    </section>
-
+{% block plugin_extra %}
+<!-- HAT 전문가 분석 토글 버튼 -->
+<div style="margin-top: 16px; text-align: right;">
+    <button id="btnHatDetail" onclick="toggleHatDetail()"
+            style="padding: 6px 16px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+        HAT 전문가 분석 ▼
+    </button>
 </div>
 
+<!-- HAT 전용 패널 (접이식) -->
+<div id="hat-detail-panel" style="display: none; margin-top: 12px;">
+
+    <!-- 전문가 차트 새로고침 -->
+    <div style="margin-bottom: 8px; text-align: right;">
+        <button id="btnExpertRefresh" onclick="onExpertRefresh()"
+                style="padding: 6px 20px; border: none; border-radius: 6px; cursor: pointer; background: #0ea5e9; color: white; font-size: 13px; font-weight: 600;">
+            전문가 차트 새로고침
+        </button>
+    </div>
+
+    <!-- 파라미터 -->
+    <div style="margin-bottom: 12px; padding: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; font-size: 13px;">
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">ADWIN Parameters</div>
+                <label>Delta: <input id="param-delta" type="number" value="0.002" step="0.001" min="0.0001" max="0.5" style="width:70px;"></label><br>
+                <label>Baseline Ratio: <input id="param-baseline" type="number" value="0.3" step="0.05" min="0.1" max="0.9" style="width:70px;"></label>
+            </div>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">Delta 가이드</div>
+                <div style="font-size: 12px; color: #64748b;">
+                    0.0001 = 매우 보수적<br>
+                    0.002 = 기본값 (권장)<br>
+                    0.01 = 민감<br>
+                    0.1 = 매우 민감/노이즈
+                </div>
+            </div>
+            <div>
+                <div style="font-weight: 600; margin-bottom: 4px;">알고리즘 요약</div>
+                <div style="font-size: 12px; color: #64748b;">
+                    ADWIN: 적응형 윈도우<br>
+                    분할 검사로 변화 감지<br>
+                    윈도우 자동 축소/확장
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 전문가 차트: Running Mean + Drift Points -->
+    <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+        <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">Running Mean (ADWIN Window)</div>
+        <canvas id="mean-chart" height="250"></canvas>
+    </div>
+
+    <!-- 전문가 차트: ADWIN Window Size -->
+    <div style="background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+        <div style="font-size: 13px; font-weight: 600; color: #475569; margin-bottom: 8px;">ADWIN Window Size Evolution</div>
+        <canvas id="window-chart" height="200"></canvas>
+    </div>
+
+    <!-- 스크롤바 + 범위 -->
+    <div style="margin-bottom: 12px;">
+        <input type="range" id="expertScroll" min="0" max="1000" value="0"
+               style="width: 100%; height: 6px; cursor: pointer; accent-color: #3b82f6;"
+               oninput="onExpertScroll(this.value)">
+        <div style="margin-top: 4px; display: flex; gap: 6px; font-size: 11px;">
+            <span style="font-weight: 600; color: #475569;">표시 범위:</span>
+            <button class="expert-range-btn" onclick="setExpertRange(12)">시간</button>
+            <button class="expert-range-btn active" onclick="setExpertRange(288)">일</button>
+            <button class="expert-range-btn" onclick="setExpertRange(2016)">주</button>
+            <button class="expert-range-btn" onclick="setExpertRange(8640)">월</button>
+            <button class="expert-range-btn" onclick="setExpertRange(0)">전체</button>
+        </div>
+    </div>
+
+    <!-- 결과 -->
+    <div id="results-section" style="display: none;">
+        <div style="display: flex; gap: 12px; margin-bottom: 12px;">
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-alarms" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Events</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-score" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Max Score</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-severity" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Max Severity</span>
+            </div>
+            <div style="flex:1; text-align:center; padding:12px; background:#fff; border:1px solid #e2e8f0; border-radius:8px;">
+                <span id="stat-window" style="font-size:1.3rem; font-weight:700;">-</span>
+                <span style="display:block; font-size:0.75rem; color:#94a3b8;">Final Window</span>
+            </div>
+        </div>
+        <table id="events-table" style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+            <thead><tr style="background:#f1f5f9;">
+                <th style="padding:8px; text-align:left;">Time</th>
+                <th style="padding:8px;">Window Before</th>
+                <th style="padding:8px;">Window After</th>
+                <th style="padding:8px;">Score</th>
+                <th style="padding:8px;">Severity</th>
+            </tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+.severity-critical { color: #dc2626; font-weight: 700; }
+.severity-warning { color: #d97706; font-weight: 600; }
+.severity-normal { color: #16a34a; }
+#events-table td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; text-align: center; }
+#events-table td:first-child { text-align: left; }
+.expert-range-btn {
+    padding: 2px 8px; border: 1px solid #e2e8f0; border-radius: 3px;
+    background: #fff; cursor: pointer;
+}
+.expert-range-btn:hover { background: #eff6ff; }
+.expert-range-btn.active { background: #3b82f6; color: white; border-color: #3b82f6; }
+</style>
+
+<script>
+function onExpertRefresh() {
+    const btn = document.getElementById('btnExpertRefresh');
+    btn.textContent = '로딩 중...';
+    btn.style.background = '#94a3b8';
+    btn.disabled = true;
+    loadExpertFromCache();
+    setTimeout(() => {
+        btn.textContent = '전문가 차트 새로고침';
+        btn.style.background = '#0ea5e9';
+        btn.disabled = false;
+    }, 1000);
+}
+
+function toggleHatDetail() {
+    const panel = document.getElementById('hat-detail-panel');
+    const btn = document.getElementById('btnHatDetail');
+    if (panel.style.display === 'none') {
+        panel.style.display = 'block';
+        btn.textContent = 'HAT 전문가 분석 ▲';
+        if (typeof loadExpertFromCache === 'function') loadExpertFromCache();
+    } else {
+        panel.style.display = 'none';
+        btn.textContent = 'HAT 전문가 분석 ▼';
+    }
+}
+</script>
 <script src="{{ url_for('hat.static', filename='chart.js') }}"></script>
 {% endblock %}

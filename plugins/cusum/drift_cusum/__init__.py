@@ -5,8 +5,9 @@ from pathlib import Path
 from flask import Blueprint, render_template
 
 from .detector import CusumDetector
+from .web.routes import register_routes
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 _PKG_DIR = Path(__file__).resolve().parent
 
@@ -18,6 +19,9 @@ blueprint = Blueprint(
     static_url_path="/static",
     url_prefix="/drift/cusum",
 )
+
+# routes.py의 라우트 등록 (example API 등)
+register_routes(blueprint)
 
 
 @blueprint.route("/")
@@ -47,11 +51,17 @@ def register(app):
         params_schema={
             "k": {"type": "float", "default": 0.25, "label": "Slack (k)",
                    "description": "허용 편차. 감지할 변화량 δ의 절반 (k=δ/2)"},
-            "h": {"type": "float", "default": 5.0, "label": "Threshold (h)",
-                   "description": "알람 임계값. 작을수록 빠른 감지, 클수록 안정적"},
+            "h": {"type": "string", "default": "auto", "label": "Threshold (h)",
+                   "description": "알람 임계값. 'auto'이면 Bootstrap 캘리브레이션으로 자동 결정"},
             "baseline_ratio": {"type": "float", "default": 0.5, "label": "Baseline Ratio",
                                "description": "기준 구간 비율. 이 구간에서 μ0, σ0를 계산"},
             "robust": {"type": "bool", "default": True, "label": "Robust Standardization",
                        "description": "True: median/MAD, False: mean/std"},
+            "calibration_B": {"type": "int", "default": 500, "label": "Bootstrap B",
+                              "description": "Bootstrap 시뮬레이션 반복 횟수"},
+            "calibration_q": {"type": "float", "default": 0.995, "label": "Quantile (q)",
+                              "description": "Bootstrap 분위수. 높을수록 보수적 임계값"},
+            "calibration_block": {"type": "int", "default": None, "label": "Block Size",
+                                  "description": "블록 부트스트랩 블록 크기 (None=iid)"},
         },
     )

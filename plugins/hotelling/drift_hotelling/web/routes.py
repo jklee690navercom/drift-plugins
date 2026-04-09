@@ -6,27 +6,41 @@ from flask import Blueprint, render_template, request, Response
 
 
 class NumpyEncoder(json.JSONEncoder):
+    """numpy 타입을 JSON으로 변환."""
     def default(self, obj):
-        if isinstance(obj, (np.integer,)): return int(obj)
-        if isinstance(obj, (np.floating,)): return float(obj)
-        if isinstance(obj, np.ndarray): return obj.tolist()
-        if hasattr(obj, 'isoformat'): return obj.isoformat()
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if hasattr(obj, 'isoformat'):
+            return obj.isoformat()
         return super().default(obj)
 
 
 def _jsonify(data):
-    return Response(json.dumps(data, cls=NumpyEncoder, ensure_ascii=False), mimetype="application/json")
+    """numpy 타입을 지원하는 JSON 응답."""
+    return Response(
+        json.dumps(data, cls=NumpyEncoder, ensure_ascii=False),
+        mimetype="application/json",
+    )
 
 
 def register_routes(bp: Blueprint):
 
-    @bp.route("/")
-    def page():
-        return render_template("hotelling/page.html")
-
-    @bp.route("/api/example")
+    @bp.route("/api/example", methods=["GET", "POST"])
     def example():
+        """예제 데이터로 Hotelling T² 실행. POST 시 params를 받을 수 있다."""
         import pandas as pd
+
+        # POST 요청에서 파라미터 추출
+        params = {}
+        if request.method == "POST" and request.is_json:
+            body = request.get_json(silent=True) or {}
+            params = body.get("params", {})
+
+        # 합성 데이터: 정상 구간 + drift 구간
         np.random.seed(42)
         n = 200
         normal = np.random.normal(0.90, 0.02, n)
@@ -38,13 +52,20 @@ def register_routes(bp: Blueprint):
         from ..detector import HotellingDetector
         detector = HotellingDetector()
         data_ids = [f"example:{i:06d}" for i in range(len(df))]
-        events = detector.detect(data=df, data_ids=data_ids, stream="example", params={})
+        events = detector.detect(
+            data=df,
+            data_ids=data_ids,
+            stream="example",
+            params=params,
+        )
 
         return _jsonify({
             "events": [e.to_dict() for e in events],
             "data": df.to_dict(orient="records"),
+            "data_ids": data_ids,
         })
 
     @bp.route("/api/run", methods=["POST"])
     def run():
+        """사용자 파라미터로 Hotelling T² 실행."""
         return example()

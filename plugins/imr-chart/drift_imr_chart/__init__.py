@@ -5,8 +5,9 @@ from pathlib import Path
 from flask import Blueprint, render_template
 
 from .detector import ImrChartDetector
+from .web.routes import register_routes
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 _PKG_DIR = Path(__file__).resolve().parent
 
@@ -14,14 +15,18 @@ blueprint = Blueprint(
     "imr_chart",
     __name__,
     template_folder=str(_PKG_DIR / "web" / "templates"),
+    static_folder=str(_PKG_DIR / "web" / "static"),
+    static_url_path="/static",
     url_prefix="/drift/imr_chart",
 )
+
+register_routes(blueprint)
 
 
 @blueprint.route("/")
 def page():
     return render_template(
-        "plugin_page.html",
+        "imr_chart/page.html",
         plugin_name="I-MR Chart",
         plugin_key="imr_chart",
     )
@@ -45,5 +50,6 @@ def register(app):
         detector_class=ImrChartDetector,
         params_schema={
             "reference_ratio": {"type": "float", "default": 0.5, "label": "Reference Ratio", "description": "기준 구간 비율 (0~1). 전체 데이터에서 이 비율만큼을 기준 구간으로 사용."},
+            "baseline_ratio": {"type": "float", "default": 0.5, "label": "Baseline Ratio", "description": "기준 구간 비율 (UCL/CL/LCL 계산용)."},
         },
     )
