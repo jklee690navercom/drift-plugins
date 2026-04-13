@@ -30,27 +30,27 @@ PRESETS = {
     "quick": {
         "window_size": 30, "alpha": 0.05, "correction": "none",
         "update_reference": False, "remove_outliers": False,
-        "method": "asymptotic", "reference_ratio": 0.5,
+        "baseline_points": 100,
     },
     "standard": {
         "window_size": 100, "alpha": 0.05, "correction": "bh",
         "update_reference": True, "remove_outliers": True,
-        "method": "asymptotic", "reference_ratio": 0.5,
+        "baseline_points": 100,
     },
     "precision": {
         "window_size": 200, "alpha": 0.01, "correction": "bonferroni",
         "update_reference": True, "remove_outliers": True,
-        "method": "exact", "reference_ratio": 0.5,
+        "baseline_points": 100,
     },
     "streaming": {
         "window_size": 100, "alpha": 0.05, "correction": "bh",
         "update_reference": True, "remove_outliers": False,
-        "method": "asymptotic", "reference_ratio": 0.5,
+        "baseline_points": 100,
     },
     "small_sample": {
         "window_size": 30, "alpha": 0.10, "correction": "none",
         "update_reference": False, "remove_outliers": False,
-        "method": "bootstrap", "reference_ratio": 0.5,
+        "baseline_points": 100,
     },
 }
 
@@ -75,10 +75,10 @@ def register_routes(bp: Blueprint):
         params = dict(PRESETS.get(preset, PRESETS["standard"]))
 
         # 사용자 오버라이드
-        for key in ["window_size", "alpha", "reference_ratio"]:
+        for key in ["window_size", "alpha", "baseline_points"]:
             if key in request.args:
                 params[key] = float(request.args[key])
-        for key in ["correction", "method"]:
+        for key in ["correction"]:
             if key in request.args:
                 params[key] = request.args[key]
         for key in ["update_reference", "remove_outliers"]:
@@ -112,10 +112,13 @@ def register_routes(bp: Blueprint):
         df = pd.DataFrame({"timestamp": timestamps, "value": values})
 
         from ..detector import KsTestDetector
+        from framework.plugin.cache import PluginCache
+
         detector = KsTestDetector()
+        detector.cache = PluginCache()
         data_ids = [f"example:{i:06d}" for i in range(len(df))]
-        events = detector.detect(
-            data=df,
+        events = detector.analyze(
+            new_data=df,
             data_ids=data_ids,
             stream="example",
             params=params,

@@ -83,10 +83,13 @@ def register_routes(bp: Blueprint):
         df["timestamp"] = timestamps
 
         from ..detector import MewmaDetector
+        from framework.plugin.cache import PluginCache
+
         detector = MewmaDetector()
+        detector.cache = PluginCache()
         data_ids = [f"example:{i:06d}" for i in range(n_total)]
-        events = detector.detect(
-            data=df,
+        events = detector.analyze(
+            new_data=df,
             data_ids=data_ids,
             stream="example_multivariate",
             params=params,

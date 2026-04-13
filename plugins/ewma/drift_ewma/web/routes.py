@@ -1,4 +1,4 @@
-"""MEWMA 플러그인 라우트."""
+"""EWMA 플러그인 라우트."""
 
 import json
 import numpy as np
@@ -31,7 +31,7 @@ def register_routes(bp: Blueprint):
 
     @bp.route("/api/example", methods=["GET", "POST"])
     def example():
-        """예제 데이터로 MEWMA 실행. POST 시 params를 받을 수 있다."""
+        """예제 데이터로 EWMA 실행. POST 시 params를 받을 수 있다."""
         import pandas as pd
 
         # POST 요청에서 파라미터 추출
@@ -48,11 +48,14 @@ def register_routes(bp: Blueprint):
         timestamps = pd.date_range("2026-01-01", periods=len(values), freq="10min")
         df = pd.DataFrame({"timestamp": timestamps, "value": values})
 
-        from ..detector import MewmaDetector
-        detector = MewmaDetector()
+        from ..detector import EwmaDetector
+        from framework.plugin.cache import PluginCache
+
+        detector = EwmaDetector()
+        detector.cache = PluginCache()
         data_ids = [f"example:{i:06d}" for i in range(len(df))]
-        events = detector.detect(
-            data=df,
+        events = detector.analyze(
+            new_data=df,
             data_ids=data_ids,
             stream="example",
             params=params,

@@ -50,7 +50,7 @@ def register(app):
         detector_class=XbarRChartDetector,
         params_schema={
             "subgroup_size": {"type": "int", "default": 5, "label": "Subgroup Size", "description": "서브그룹 크기. 데이터를 이 크기로 묶어서 분석."},
-            "reference_ratio": {"type": "float", "default": 0.5, "label": "Reference Ratio", "description": "기준 구간 비율 (0~1)."},
-            "baseline_ratio": {"type": "float", "default": 0.5, "label": "Baseline Ratio", "description": "기준 구간 비율 (UCL/CL/LCL 계산용)."},
+            "baseline_points": {"type": "int", "default": 30, "label": "Baseline Points",
+                                "description": "기준 구간 포인트 수 (UCL/CL/LCL 계산용)."},
         },
     )

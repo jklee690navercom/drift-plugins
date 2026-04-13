@@ -49,10 +49,13 @@ def register_routes(bp: Blueprint):
         df = pd.DataFrame({"timestamp": timestamps, "value": counts})
 
         from ..detector import CChartDetector
+        from framework.plugin.cache import PluginCache
+
         detector = CChartDetector()
+        detector.cache = PluginCache()
         data_ids = [f"example:{i:06d}" for i in range(len(df))]
-        events = detector.detect(
-            data=df,
+        events = detector.analyze(
+            new_data=df,
             data_ids=data_ids,
             stream="example",
             params=params,

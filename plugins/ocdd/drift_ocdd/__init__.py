@@ -53,7 +53,7 @@ def register(app):
                             "description": "슬라이딩 윈도우 크기 (outlier ratio 계산용)"},
             "rho": {"type": "float", "default": 0.3, "label": "Rho (rho)",
                     "description": "outlier 비율 임계값. 이 비율 이상이면 drift 감지."},
-            "baseline_ratio": {"type": "float", "default": 0.3333, "label": "Baseline Ratio",
-                               "description": "IQR 계산을 위한 기준 구간 비율."},
+            "baseline_points": {"type": "int", "default": 100, "label": "Baseline Points",
+                                "description": "IQR 계산을 위한 기준 구간 포인트 수."},
         },
     )

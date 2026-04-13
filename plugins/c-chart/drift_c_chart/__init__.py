@@ -49,7 +49,7 @@ def register(app):
         icon="chart-bar",
         detector_class=CChartDetector,
         params_schema={
-            "reference_ratio": {"type": "float", "default": 0.5, "label": "Reference Ratio", "description": "기준 구간 비율 (0~1)."},
-            "baseline_ratio": {"type": "float", "default": 0.5, "label": "Baseline Ratio", "description": "기준 구간 비율 (UCL/CL/LCL 계산용)."},
+            "baseline_points": {"type": "int", "default": 30, "label": "Baseline Points",
+                                "description": "기준 구간 포인트 수 (UCL/CL/LCL 계산용)."},
         },
     )

@@ -52,10 +52,13 @@ def register_routes(bp: Blueprint):
         df = pd.DataFrame({"timestamp": timestamps, "value": values})
 
         from ..detector import ImrChartDetector
+        from framework.plugin.cache import PluginCache
+
         detector = ImrChartDetector()
+        detector.cache = PluginCache()
         data_ids = [f"example:{i:06d}" for i in range(len(df))]
-        events = detector.detect(
-            data=df,
+        events = detector.analyze(
+            new_data=df,
             data_ids=data_ids,
             stream="example",
             params=params,

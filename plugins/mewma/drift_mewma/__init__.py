@@ -53,7 +53,7 @@ def register(app):
                         "description": "EWMA 평활 계수 (0.05~0.5). 작을수록 부드러움."},
             "alpha": {"type": "float", "default": 0.001, "label": "Alpha (α)",
                       "description": "유의수준. 작을수록 보수적 (UCL 높음)."},
-            "baseline_ratio": {"type": "float", "default": 0.3333, "label": "Baseline Ratio",
-                               "description": "기준 구간 비율 (μ0, Σ0 추정용)."},
+            "baseline_points": {"type": "int", "default": 100, "label": "Baseline Points",
+                                "description": "기준 구간 포인트 수 (μ0, Σ0 추정용)."},
         },
     )

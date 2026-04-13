@@ -51,7 +51,7 @@ def register(app):
         params_schema={
             "delta": {"type": "float", "default": 0.002, "label": "Delta (ADWIN)",
                       "description": "ADWIN confidence 파라미터. 작을수록 보수적 (오탐 감소)."},
-            "baseline_ratio": {"type": "float", "default": 0.3, "label": "Baseline Ratio",
-                               "description": "초기 윈도우 구축용 기준 구간 비율."},
+            "baseline_points": {"type": "int", "default": 30, "label": "Baseline Points",
+                                "description": "초기 윈도우 구축용 기준 구간 포인트 수."},
         },
     )

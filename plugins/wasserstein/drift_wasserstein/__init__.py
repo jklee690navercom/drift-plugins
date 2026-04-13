@@ -51,15 +51,13 @@ def register(app):
         params_schema={
             "window_size": {"type": "int", "default": 50, "label": "Window Size",
                             "description": "슬라이딩 윈도우 크기"},
-            "reference_ratio": {"type": "float", "default": 0.5, "label": "Reference Ratio",
-                                "description": "기준 구간 비율."},
+            "baseline_points": {"type": "int", "default": 100, "label": "Baseline Points",
+                                "description": "기준 구간 포인트 수."},
             "threshold": {"type": "float", "default": 0.1, "label": "Threshold",
                           "description": "Wasserstein 거리 임계값."},
             "lambda_smooth": {"type": "float", "default": 0.3, "label": "Lambda (EWMA)",
                               "description": "EWMA 평활 계수 (0~1). 클수록 최근값 반영."},
             "update_reference": {"type": "bool", "default": True, "label": "Update Reference",
                                  "description": "드리프트 후 기준 윈도우 갱신 여부."},
-            "baseline_ratio": {"type": "float", "default": 0.5, "label": "Baseline Ratio",
-                               "description": "기준 통계 추정 비율."},
         },
     )
